@@ -1,0 +1,235 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum SwipeDirection {
+  LIKE
+  PASS
+}
+
+enum NotificationType {
+  MATCH
+  MESSAGE
+  LIKE
+  POST_LIKE
+  POST_COMMENT
+  GROUP_INVITE
+}
+
+model User {
+  id            String   @id @default(uuid())
+  email         String   @unique
+  passwordHash  String
+  name          String
+  dob           DateTime
+  gender        Gender
+  bio           String?
+  location      String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  isActive      Boolean  @default(true)
+
+  photos            Photo[]
+  posts             Post[]
+  postLikes         PostLike[]
+  postComments      PostComment[]
+  stories           Story[]
+  storyViews        StoryView[]
+  sentSwipes        Swipe[]              @relation("SwipesSent")
+  receivedSwipes    Swipe[]              @relation("SwipesReceived")
+  matchesAsA        Match[]              @relation("MatchUserA")
+  matchesAsB        Match[]              @relation("MatchUserB")
+  messages          Message[]
+  conversations     ConversationParticipant[]
+  notifications     Notification[]
+  communityMemberships CommunityMember[]
+  reportsMade       Report[]             @relation("ReportsMade")
+  reportsReceived   Report[]             @relation("ReportsReceived")
+  blockedUsers      Block[]              @relation("BlockingUser")
+  blockedByUsers    Block[]              @relation("BlockedUser")
+}
+
+model Photo {
+  id            String   @id @default(uuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  url           String
+  isProfilePic  Boolean  @default(false)
+  createdAt     DateTime @default(now())
+}
+
+model Swipe {
+  id          String         @id @default(uuid())
+  swiperId    String
+  swiper      User           @relation("SwipesSent", fields: [swiperId], references: [id], onDelete: Cascade)
+  swipedId    String
+  swiped      User           @relation("SwipesReceived", fields: [swipedId], references: [id], onDelete: Cascade)
+  direction   SwipeDirection
+  createdAt   DateTime       @default(now())
+
+  @@unique([swiperId, swipedId])
+}
+
+model Match {
+  id          String   @id @default(uuid())
+  userAId     String
+  userA       User     @relation("MatchUserA", fields: [userAId], references: [id], onDelete: Cascade)
+  userBId     String
+  userB       User     @relation("MatchUserB", fields: [userBId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+  conversationId String? @unique
+  conversation   Conversation? @relation(fields: [conversationId], references: [id])
+
+  @@unique([userAId, userBId])
+}
+
+model Conversation {
+  id            String   @id @default(uuid())
+  isGroup       Boolean  @default(false)
+  name          String?
+  createdAt     DateTime @default(now())
+
+  participants  ConversationParticipant[]
+  messages      Message[]
+  match         Match?
+}
+
+model ConversationParticipant {
+  id              String       @id @default(uuid())
+  conversationId  String
+  conversation    Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  joinedAt        DateTime     @default(now())
+
+  @@unique([conversationId, userId])
+}
+
+model Message {
+  id              String       @id @default(uuid())
+  conversationId  String
+  conversation    Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId        String
+  sender          User         @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  content         String
+  createdAt       DateTime     @default(now())
+  readAt          DateTime?
+}
+
+model Post {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  content     String?
+  imageUrl    String?
+  createdAt   DateTime @default(now())
+
+  likes       PostLike[]
+  comments    PostComment[]
+}
+
+model PostLike {
+  id        String   @id @default(uuid())
+  postId    String
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([postId, userId])
+}
+
+model PostComment {
+  id        String   @id @default(uuid())
+  postId    String
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  content   String
+  createdAt DateTime @default(now())
+}
+
+model Story {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mediaUrl    String
+  caption     String?
+  createdAt   DateTime @default(now())
+  expiresAt   DateTime // set to createdAt + 24h when created
+
+  views       StoryView[]
+}
+
+model StoryView {
+  id        String   @id @default(uuid())
+  storyId   String
+  story     Story    @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  viewedAt  DateTime @default(now())
+
+  @@unique([storyId, userId])
+}
+
+model Community {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+
+  members     CommunityMember[]
+}
+
+model CommunityMember {
+  id           String    @id @default(uuid())
+  communityId  String
+  community    Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  joinedAt     DateTime  @default(now())
+
+  @@unique([communityId, userId])
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      NotificationType
+  payload   Json?
+  read      Boolean          @default(false)
+  createdAt DateTime         @default(now())
+}
+
+model Report {
+  id            String   @id @default(uuid())
+  reporterId    String
+  reporter      User     @relation("ReportsMade", fields: [reporterId], references: [id], onDelete: Cascade)
+  reportedId    String
+  reported      User     @relation("ReportsReceived", fields: [reportedId], references: [id], onDelete: Cascade)
+  reason        String
+  createdAt     DateTime @default(now())
+}
+
+model Block {
+  id           String   @id @default(uuid())
+  blockerId    String
+  blocker      User     @relation("BlockingUser", fields: [blockerId], references: [id], onDelete: Cascade)
+  blockedId    String
+  blocked      User     @relation("BlockedUser", fields: [blockedId], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now())
+
+  @@unique([blockerId, blockedId])
+}
