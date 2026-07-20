@@ -1,4 +1,5 @@
 require('dotenv').config();
+
 const express = require('express');
 const http = require('http');
 const cors = require('cors');
@@ -12,6 +13,7 @@ const communityRoutes = require('./routes/communities');
 const safetyRoutes = require('./routes/safety');
 const profileRoutes = require('./routes/profile');
 const storyRoutes = require('./routes/stories');
+const verificationRoutes = require('./routes/verification');
 const notificationRoutes = require('./routes/notifications');
 const { registerChatHandlers } = require('./sockets/chat');
 
@@ -21,6 +23,8 @@ const server = http.createServer(app);
 const io = new Server(server, {
   cors: { origin: process.env.CLIENT_URL || '*', methods: ['GET', 'POST'] },
 });
+
+
 
 // Makes the Socket.IO instance available to REST controllers (via req.app.locals.io)
 // so actions like matching or liking a post can push a live notification,
@@ -39,6 +43,7 @@ app.use('/api/posts', postRoutes);
 app.use('/api/communities', communityRoutes);
 app.use('/api/safety', safetyRoutes);
 app.use('/api/profile', profileRoutes);
+app.use('/api/profile', verificationRoutes);
 app.use('/api/stories', storyRoutes);
 app.use('/api/notifications', notificationRoutes);
 

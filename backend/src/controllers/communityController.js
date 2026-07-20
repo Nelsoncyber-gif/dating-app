@@ -23,6 +23,8 @@ async function getCommunity(req, res) {
 }
 
 // POST /api/communities { name, description }
+// Also creates a linked group Conversation so members can chat within the group,
+// the same way Match creation auto-creates a 1-on-1 conversation.
 async function createCommunity(req, res) {
   const userId = req.userId;
   const { name, description } = req.body;
@@ -31,10 +33,19 @@ async function createCommunity(req, res) {
     return res.status(400).json({ error: 'Community name is required' });
   }
 
+  const conversation = await prisma.conversation.create({
+    data: {
+      isGroup: true,
+      name,
+      participants: { create: [{ userId }] },
+    },
+  });
+
   const community = await prisma.community.create({
     data: {
       name,
       description: description || null,
+      conversationId: conversation.id,
       // Creator automatically becomes the first member
       members: { create: [{ userId }] },
     },
@@ -58,7 +69,20 @@ async function joinCommunity(req, res) {
   if (existing) return res.status(409).json({ error: 'Already a member' });
 
   await prisma.communityMember.create({ data: { communityId: id, userId } });
-  return res.status(201).json({ joined: true });
+
+  // Keep the group chat's participant list in sync with community membership
+  if (community.conversationId) {
+    const alreadyInChat = await prisma.conversationParticipant.findUnique({
+      where: { conversationId_userId: { conversationId: community.conversationId, userId } },
+    });
+    if (!alreadyInChat) {
+      await prisma.conversationParticipant.create({
+        data: { conversationId: community.conversationId, userId },
+      });
+    }
+  }
+
+  return res.status(201).json({ joined: true, conversationId: community.conversationId });
 }
 
 // POST /api/communities/:id/leave
@@ -66,12 +90,25 @@ async function leaveCommunity(req, res) {
   const { id } = req.params;
   const userId = req.userId;
 
+  const community = await prisma.community.findUnique({ where: { id } });
+  if (!community) return res.status(404).json({ error: 'Community not found' });
+
   const membership = await prisma.communityMember.findUnique({
     where: { communityId_userId: { communityId: id, userId } },
   });
   if (!membership) return res.status(404).json({ error: 'Not a member of this community' });
 
   await prisma.communityMember.delete({ where: { id: membership.id } });
+
+  if (community.conversationId) {
+    const chatMembership = await prisma.conversationParticipant.findUnique({
+      where: { conversationId_userId: { conversationId: community.conversationId, userId } },
+    });
+    if (chatMembership) {
+      await prisma.conversationParticipant.delete({ where: { id: chatMembership.id } });
+    }
+  }
+
   return res.json({ left: true });
 }
 

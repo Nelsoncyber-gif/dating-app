@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Users } from 'lucide-react';
+import { ArrowLeft, MessageCircle, Users } from 'lucide-react';
 import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
 
@@ -113,6 +113,15 @@ export default function CommunityDetailPage() {
           >
             {actionLoading ? 'Please wait…' : isMember ? 'Leave Group' : 'Join Group'}
           </button>
+
+          {isMember && community.conversationId && (
+            <button
+              onClick={() => navigate(`/chats/${community.conversationId}`)}
+              className="w-full mt-2 rounded-lg py-2.5 text-sm font-semibold bg-primary/10 text-primary flex items-center justify-center gap-1.5"
+            >
+              <MessageCircle size={16} /> Open Group Chat
+            </button>
+          )}
         </div>
 
         <h2 className="text-sm font-semibold text-gray-700 mb-2 px-1">Members</h2>

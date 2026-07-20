@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { LogOut, Check, ShieldAlert } from 'lucide-react';
+import { LogOut, Check, ShieldAlert, CheckCircle, Shield } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/client';
 import PhotoGrid from '../components/profile/PhotoGrid';
@@ -52,6 +52,15 @@ export default function ProfilePage() {
     }
   }
 
+  async function handleVerify() {
+    try {
+      const res = await api.post('/profile/verify');
+      window.open(res.data.url, '_blank');
+    } catch (err) {
+      console.error('Verification failed', err);
+    }
+  }
+
   const primaryPhoto = photos.find((p) => p.isProfilePic) || photos[0];
 
   if (loading) {
@@ -71,7 +80,12 @@ export default function ProfilePage() {
           )}
         </div>
         <div className="min-w-0">
-          <p className="font-semibold text-gray-900 truncate">{user?.name}</p>
+          <div className="flex items-center gap-1.5">
+            <p className="font-semibold text-gray-900 truncate">{user?.name}</p>
+            {user?.isVerified && (
+              <CheckCircle size={16} className="text-blue-500 fill-blue-500" />
+            )}
+          </div>
           <p className="text-sm text-gray-400 truncate">{user?.email}</p>
         </div>
       </div>
@@ -131,6 +145,31 @@ export default function ProfilePage() {
           </button>
         </form>
       </div>
+
+      {!user?.isVerified && user?.verificationStatus !== 'pending' && (
+        <div className="bg-white rounded-xl shadow-sm p-4 mb-4">
+          <div className="flex items-center gap-3 mb-3">
+            <Shield size={20} className="text-primary" />
+            <div>
+              <h2 className="text-sm font-semibold text-gray-900">Get Verified</h2>
+              <p className="text-xs text-gray-500">Verify your ID to get a blue checkmark and build trust.</p>
+            </div>
+          </div>
+          <button
+            onClick={handleVerify}
+            className="w-full bg-blue-500 hover:bg-blue-600 text-white font-medium rounded-lg py-2.5 text-sm transition flex items-center justify-center gap-2"
+          >
+            <Shield size={16} /> Start Verification
+          </button>
+        </div>
+      )}
+
+      {user?.verificationStatus === 'pending' && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 mb-4 text-center">
+          <p className="text-sm text-yellow-800 font-medium">Verification in progress</p>
+          <p className="text-xs text-yellow-600 mt-1">We'll update your profile once Stripe reviews your ID.</p>
+        </div>
+      )}
 
       <div className="flex flex-col gap-2">
         <button

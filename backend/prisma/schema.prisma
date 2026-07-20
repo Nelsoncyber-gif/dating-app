@@ -58,6 +58,14 @@ model User {
   reportsReceived   Report[]             @relation("ReportsReceived")
   blockedUsers      Block[]              @relation("BlockingUser")
   blockedByUsers    Block[]              @relation("BlockedUser")
+
+  
+  // Add these three lines:
+  isVerified         Boolean  @default(false)
+  verificationStatus String   @default("unverified") // unverified, pending, verified, rejected
+  verificationExtId  String?  @unique // Stores the Stripe verification session ID
+
+  // ... keep all your existing relations ...
 }
 
 model Photo {
@@ -82,13 +90,13 @@ model Swipe {
 }
 
 model Match {
-  id          String   @id @default(uuid())
-  userAId     String
-  userA       User     @relation("MatchUserA", fields: [userAId], references: [id], onDelete: Cascade)
-  userBId     String
-  userB       User     @relation("MatchUserB", fields: [userBId], references: [id], onDelete: Cascade)
-  createdAt   DateTime @default(now())
-  conversationId String? @unique
+  id            String   @id @default(uuid())
+  userAId       String
+  userA         User     @relation("MatchUserA", fields: [userAId], references: [id], onDelete: Cascade)
+  userBId       String
+  userB         User     @relation("MatchUserB", fields: [userBId], references: [id], onDelete: Cascade)
+  createdAt     DateTime @default(now())
+  conversationId String?  @unique
   conversation   Conversation? @relation(fields: [conversationId], references: [id])
 
   @@unique([userAId, userBId])
@@ -103,6 +111,7 @@ model Conversation {
   participants  ConversationParticipant[]
   messages      Message[]
   match         Match?
+  community     Community?
 }
 
 model ConversationParticipant {
@@ -184,10 +193,12 @@ model StoryView {
 }
 
 model Community {
-  id          String   @id @default(uuid())
-  name        String
-  description String?
-  createdAt   DateTime @default(now())
+  id             String        @id @default(uuid())
+  name           String
+  description    String?
+  createdAt      DateTime      @default(now())
+  conversationId String?       @unique
+  conversation   Conversation? @relation(fields: [conversationId], references: [id])
 
   members     CommunityMember[]
 }
@@ -233,3 +244,6 @@ model Block {
 
   @@unique([blockerId, blockedId])
 }
+
+
+
