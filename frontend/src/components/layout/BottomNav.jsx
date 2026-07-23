@@ -11,14 +11,14 @@ const navItems = [
 
 export default function BottomNav() {
   return (
-    <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 flex justify-around items-center h-16 z-40 max-w-md mx-auto">
+    <nav className="fixed bottom-0 left-0 right-0 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 flex justify-around items-center h-16 z-40 max-w-md mx-auto">
       {navItems.map(({ to, icon: Icon, label }) => (
         <NavLink
           key={to}
           to={to}
           className={({ isActive }) =>
             `flex flex-col items-center gap-1 text-xs px-2 py-1 transition ${
-              isActive ? 'text-primary' : 'text-gray-400'
+              isActive ? 'text-primary' : 'text-gray-400 dark:text-gray-500'
             }`
           }
         >

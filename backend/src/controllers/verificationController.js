@@ -4,7 +4,7 @@ const prisma = require('../config/db');
 // Initialize Stripe (make sure STRIPE_SECRET_KEY is in your .env)
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
-// POST /api/profile/verify - Creates a session and returns the URL for the user
+// POST /api/verification/verify - Creates a session and returns the URL for the user
 async function createVerificationSession(req, res) {
   const userId = req.userId;
   
@@ -31,7 +31,7 @@ async function createVerificationSession(req, res) {
   }
 }
 
-// POST /api/webhooks/stripe-identity - Receives results from Stripe
+// POST /api/verification/webhooks/stripe-identity - Receives results from Stripe
 async function handleWebhook(req, res) {
   const sig = req.headers['stripe-signature'];
   let event;

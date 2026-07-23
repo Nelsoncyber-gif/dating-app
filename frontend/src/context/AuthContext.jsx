@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import api from '../api/client';
+import { initPushNotifications } from '../utils/push';
 
 const AuthContext = createContext(null);
 
@@ -16,7 +17,11 @@ export function AuthProvider({ children }) {
     }
 
     api.get('/auth/me')
-      .then((res) => setUser(res.data.user))
+      .then((res) => {
+        setUser(res.data.user);
+        // Subscribe to push on app load if already logged in
+        initPushNotifications().catch(() => {});
+      })
       .catch(() => {
         localStorage.removeItem('token');
         localStorage.removeItem('user');
@@ -29,6 +34,8 @@ export function AuthProvider({ children }) {
     localStorage.setItem('token', res.data.token);
     localStorage.setItem('user', JSON.stringify(res.data.user));
     setUser(res.data.user);
+    // Subscribe to push notifications after auth
+    initPushNotifications().catch(() => {});
     return res.data.user;
   }
 
@@ -37,7 +44,17 @@ export function AuthProvider({ children }) {
     localStorage.setItem('token', res.data.token);
     localStorage.setItem('user', JSON.stringify(res.data.user));
     setUser(res.data.user);
+    // Subscribe to push notifications after auth
+    initPushNotifications().catch(() => {});
     return res.data.user;
+  }
+
+  async function verifyEmail(code) {
+    const res = await api.post('/auth/verify-email', { code });
+    const updatedUser = { ...(user || {}), ...res.data.user, isEmailVerified: true };
+    setUser(updatedUser);
+    localStorage.setItem('user', JSON.stringify(updatedUser));
+    return res.data;
   }
 
   function logout() {
@@ -46,8 +63,19 @@ export function AuthProvider({ children }) {
     setUser(null);
   }
 
+  async function refreshUser() {
+    try {
+      const res = await api.get('/auth/me');
+      setUser(res.data.user);
+      localStorage.setItem('user', JSON.stringify(res.data.user));
+      return res.data.user;
+    } catch (err) {
+      console.error('Failed to refresh user', err);
+    }
+  }
+
   return (
-    <AuthContext.Provider value={{ user, setUser, loading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, setUser, loading, login, register, logout, verifyEmail, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

@@ -1,4 +1,5 @@
 const prisma = require('../config/db');
+const cloudinary = require('../config/cloudinary');
 
 // GET /api/conversations - all conversations for the logged-in user
 async function getConversations(req, res) {
@@ -80,4 +81,32 @@ async function createGroupChat(req, res) {
   return res.status(201).json({ conversation });
 }
 
-module.exports = { getConversations, getMessages, sendMessage, createGroupChat };
+// POST /api/conversations/:id/media - upload image/video for chat messages
+async function uploadMediaChat(req, res) {
+  const { id } = req.params;
+  const senderId = req.userId;
+
+  if (!req.file) {
+    return res.status(400).json({ error: 'No file provided' });
+  }
+
+  const participant = await prisma.conversationParticipant.findUnique({
+    where: { conversationId_userId: { conversationId: id, userId: senderId } },
+  });
+  if (!participant) return res.status(403).json({ error: 'Not a participant of this conversation' });
+
+  const isVideo = req.file.mimetype.startsWith('video/');
+  const mediaType = isVideo ? 'video' : 'image';
+
+  const uploadResult = await new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      { folder: 'dating-app/chat', resource_type: isVideo ? 'video' : 'image' },
+      (err, result) => (err ? reject(err) : resolve(result)),
+    );
+    stream.end(req.file.buffer);
+  });
+
+  return res.json({ url: uploadResult.secure_url, mediaType });
+}
+
+module.exports = { getConversations, getMessages, sendMessage, createGroupChat, uploadMediaChat };

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { MessageCircle } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { MessageCircle, Heart, Clock, Phone, Crown } from 'lucide-react';
 import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useSocket } from '../context/SocketContext';
@@ -8,8 +9,10 @@ import ConversationListItem from '../components/chat/ConversationListItem';
 export default function ChatsPage() {
   const { user } = useAuth();
   const { socket } = useSocket();
+  const navigate = useNavigate();
   const [conversations, setConversations] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [matchCount, setMatchCount] = useState(0);
 
   useEffect(() => {
     loadConversations();
@@ -38,8 +41,12 @@ export default function ChatsPage() {
   async function loadConversations() {
     setLoading(true);
     try {
-      const res = await api.get('/conversations');
-      setConversations(res.data.conversations);
+      const [convRes, matchRes] = await Promise.all([
+        api.get('/conversations'),
+        api.get('/social/matches'),
+      ]);
+      setConversations(convRes.data.conversations);
+      setMatchCount(matchRes.data.matches.length);
     } catch (err) {
       console.error('Failed to load conversations', err);
     } finally {
@@ -48,8 +55,44 @@ export default function ChatsPage() {
   }
 
   return (
-    <div className="pt-3">
+   <div className="pt-3 max-w-3xl mx-auto w-full">
       <h1 className="text-xl font-bold text-gray-900 px-4 mb-2">Chats</h1>
+
+      {/* Quick-access links to Matches, Pending Likes, and Call History */}
+      <div className="flex gap-2 px-4 mb-3">
+        <button
+          onClick={() => navigate('/matches')}
+          className="flex-1 bg-primary/10 text-primary rounded-xl py-2.5 flex items-center justify-center gap-1.5 text-xs font-semibold hover:bg-primary/20 transition"
+        >
+          <Heart size={16} fill="currentColor" />
+          Matches{matchCount > 0 ? ` (${matchCount})` : ''}
+        </button>
+        <button
+          onClick={() => navigate('/pending')}
+          className="flex-1 bg-gray-100 text-gray-600 rounded-xl py-2.5 flex items-center justify-center gap-1.5 text-xs font-semibold hover:bg-gray-200 transition"
+        >
+          <Clock size={16} />
+          Pending
+        </button>
+        <button
+          onClick={() => navigate('/calls')}
+          className="flex-1 bg-gray-100 text-gray-600 rounded-xl py-2.5 flex items-center justify-center gap-1.5 text-xs font-semibold hover:bg-gray-200 transition"
+        >
+          <Phone size={16} />
+          Calls
+        </button>
+      </div>
+
+      {/* Go Premium Banner */}
+      {!user?.isPremium && (
+        <button
+          onClick={() => navigate('/premium')}
+          className="mx-4 mb-3 w-auto bg-gradient-to-r from-amber-100 to-yellow-100 hover:from-amber-200 hover:to-yellow-200 rounded-xl p-2.5 flex items-center gap-2 transition"
+        >
+          <Crown size={16} className="text-amber-500 flex-shrink-0" />
+          <span className="text-xs font-semibold text-amber-700">Go Premium — unlimited swipes & more</span>
+        </button>
+      )}
 
       {loading && <p className="text-center text-gray-400 text-sm mt-8">Loading chats…</p>}
 

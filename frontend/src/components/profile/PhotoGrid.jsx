@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import { Plus, Star, Trash2, X } from 'lucide-react';
 import api from '../../api/client';
 
-export default function PhotoGrid({ photos, onPhotosChange }) {
+export default function PhotoGrid({ photos, onPhotosChange, onPhotoClick }) {
   const fileInputRef = useRef(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
@@ -11,7 +11,6 @@ export default function PhotoGrid({ photos, onPhotosChange }) {
   async function handleFileSelect(e) {
     const file = e.target.files?.[0];
     if (!file) return;
-
     setError('');
     setUploading(true);
     try {
@@ -55,20 +54,27 @@ export default function PhotoGrid({ photos, onPhotosChange }) {
     <div>
       <div className="grid grid-cols-3 gap-2">
         {photos.map((photo) => (
-          <div key={photo.id} className="relative aspect-square rounded-lg overflow-hidden group bg-gray-100">
+          <div 
+            key={photo.id} 
+            className="relative aspect-square rounded-lg overflow-hidden group bg-gray-100"
+          >
             <img
               src={photo.url}
               alt=""
-              onClick={() => setViewingPhoto(photo)}
+              onClick={() => {
+                if (onPhotoClick) {
+                  onPhotoClick(photo);
+                } else {
+                  setViewingPhoto(photo);
+                }
+              }}
               className="w-full h-full object-cover cursor-pointer"
             />
-
             {photo.isProfilePic && (
               <div className="absolute top-1 left-1 bg-primary text-white rounded-full p-1 pointer-events-none">
                 <Star size={10} fill="white" />
               </div>
             )}
-
             <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100">
               {!photo.isProfilePic && (
                 <button
@@ -89,7 +95,6 @@ export default function PhotoGrid({ photos, onPhotosChange }) {
             </div>
           </div>
         ))}
-
         <button
           onClick={() => fileInputRef.current?.click()}
           disabled={uploading}
@@ -99,7 +104,6 @@ export default function PhotoGrid({ photos, onPhotosChange }) {
           <span className="text-[10px] mt-1">{uploading ? 'Uploading…' : 'Add photo'}</span>
         </button>
       </div>
-
       <input
         ref={fileInputRef}
         type="file"
@@ -107,14 +111,12 @@ export default function PhotoGrid({ photos, onPhotosChange }) {
         className="hidden"
         onChange={handleFileSelect}
       />
-
       {error && <p className="text-red-500 text-xs mt-2">{error}</p>}
       {photos.length === 0 && (
         <p className="text-xs text-gray-400 mt-2">
           Add your first photo — it'll automatically become your main profile picture.
         </p>
       )}
-
       {viewingPhoto && (
         <div
           className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center px-4"
@@ -126,14 +128,12 @@ export default function PhotoGrid({ photos, onPhotosChange }) {
           >
             <X size={20} />
           </button>
-
           <img
             src={viewingPhoto.url}
             alt=""
             onClick={(e) => e.stopPropagation()}
             className="max-h-[75vh] max-w-full rounded-lg object-contain"
           />
-
           <div
             onClick={(e) => e.stopPropagation()}
             className="absolute bottom-8 flex gap-3"

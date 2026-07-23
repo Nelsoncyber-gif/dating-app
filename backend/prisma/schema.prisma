@@ -39,6 +39,9 @@ model User {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
   isActive      Boolean  @default(true)
+  isEmailVerified Boolean @default(false)
+  verificationCode String?
+  verificationCodeExpiresAt DateTime?
 
   photos            Photo[]
   posts             Post[]
@@ -58,14 +61,35 @@ model User {
   reportsReceived   Report[]             @relation("ReportsReceived")
   blockedUsers      Block[]              @relation("BlockingUser")
   blockedByUsers    Block[]              @relation("BlockedUser")
+  isPremium         Boolean              @default(false)
+  premiumUntil      DateTime?
 
-  
-  // Add these three lines:
   isVerified         Boolean  @default(false)
-  verificationStatus String   @default("unverified") // unverified, pending, verified, rejected
-  verificationExtId  String?  @unique // Stores the Stripe verification session ID
+  verificationStatus String   @default("unverified")
+  verificationExtId  String?  @unique
 
-  // ... keep all your existing relations ...
+  callerCalls   CallLog[] @relation("CallerCalls")
+  receiverCalls CallLog[] @relation("ReceiverCalls")
+
+  interests      UserInterest[]
+  superLikesUsed Int      @default(0)
+  boostedUntil   DateTime?
+
+  isPhotoVerified    Boolean            @default(false)
+  emergencyContact   EmergencyContact?
+  activeSafetyCheck  SafetyCheck?
+  isIncognito        Boolean            @default(false)
+
+  theme         String   @default("light")
+  occupation    String?
+  education     String?
+  zodiacSign    String?
+  loveLanguage  String?
+
+  createdEvents     Event[]
+  eventAttendees    EventAttendee[]
+  sentDateProposals DateProposal[] @relation("DateProposer")
+  pushSubscriptions  PushSubscription[]
 }
 
 model Photo {
@@ -84,9 +108,13 @@ model Swipe {
   swipedId    String
   swiped      User           @relation("SwipesReceived", fields: [swipedId], references: [id], onDelete: Cascade)
   direction   SwipeDirection
+  isSuperLike Boolean @default(false)
   createdAt   DateTime       @default(now())
 
   @@unique([swiperId, swipedId])
+
+  @@index([swiperId, createdAt])
+  @@index([swipedId, createdAt])
 }
 
 model Match {
@@ -100,6 +128,9 @@ model Match {
   conversation   Conversation? @relation(fields: [conversationId], references: [id])
 
   @@unique([userAId, userBId])
+
+  @@index([userAId])
+  @@index([userBId])
 }
 
 model Conversation {
@@ -112,6 +143,7 @@ model Conversation {
   messages      Message[]
   match         Match?
   community     Community?
+  dateProposals DateProposal[]
 }
 
 model ConversationParticipant {
@@ -132,8 +164,11 @@ model Message {
   senderId        String
   sender          User         @relation(fields: [senderId], references: [id], onDelete: Cascade)
   content         String
+  mediaUrl        String?
+  mediaType       String?
   createdAt       DateTime     @default(now())
   readAt          DateTime?
+  @@index([conversationId, createdAt])
 }
 
 model Post {
@@ -142,6 +177,7 @@ model Post {
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   content     String?
   imageUrl    String?
+  mediaType   String   @default("image")
   createdAt   DateTime @default(now())
 
   likes       PostLike[]
@@ -170,15 +206,17 @@ model PostComment {
 }
 
 model Story {
-  id          String   @id @default(uuid())
-  userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  mediaUrl    String
-  caption     String?
-  createdAt   DateTime @default(now())
-  expiresAt   DateTime // set to createdAt + 24h when created
+  id            String   @id @default(uuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mediaUrl      String?
+  caption       String?
+  type          String   @default("media")
+  backgroundColor String?
+  createdAt     DateTime @default(now())
+  expiresAt     DateTime // set to createdAt + 24h when created
 
-  views       StoryView[]
+  views         StoryView[]
 }
 
 model StoryView {
@@ -201,6 +239,7 @@ model Community {
   conversation   Conversation? @relation(fields: [conversationId], references: [id])
 
   members     CommunityMember[]
+  events      Event[]
 }
 
 model CommunityMember {
@@ -243,6 +282,102 @@ model Block {
   createdAt    DateTime @default(now())
 
   @@unique([blockerId, blockedId])
+}
+
+model CallLog {
+  id         String   @id @default(uuid())
+  callerId   String
+  caller     User     @relation("CallerCalls", fields: [callerId], references: [id], onDelete: Cascade)
+  receiverId String
+  receiver   User     @relation("ReceiverCalls", fields: [receiverId], references: [id], onDelete: Cascade)
+  type       String   // "voice" or "video"
+  status     String   // "completed", "missed", "rejected"
+  duration   Int      @default(0) // in seconds
+  createdAt  DateTime @default(now())
+}
+
+model Interest {
+  id    String         @id @default(uuid())
+  name  String         @unique
+  users UserInterest[]
+}
+
+model UserInterest {
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  interestId String
+  interest   Interest @relation(fields: [interestId], references: [id], onDelete: Cascade)
+
+  @@id([userId, interestId])
+}
+
+model EmergencyContact {
+  id     String  @id @default(uuid())
+  userId String  @unique
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name   String
+  phone  String
+  email  String?
+}
+
+model SafetyCheck {
+  id           String   @id @default(uuid())
+  userId       String   @unique
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  checkInTime  DateTime
+  deadline     DateTime
+  location     String?
+  status       String   @default("active") // active, checked_in, alerted
+}
+
+model Event {
+  id           String          @id @default(uuid())
+  title        String
+  description  String?
+  date         DateTime
+  location     String
+  coverImage   String?
+  creatorId    String
+  creator      User            @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  communityId  String?
+  community    Community?      @relation(fields: [communityId], references: [id], onDelete: SetNull)
+  maxAttendees Int?
+  attendees    EventAttendee[]
+  createdAt    DateTime        @default(now())
+}
+
+model EventAttendee {
+  id        String   @id @default(uuid())
+  eventId   String
+  event     Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status    String   @default("going") // "going" or "interested"
+  createdAt DateTime @default(now())
+
+  @@unique([eventId, userId])
+}
+
+model DateProposal {
+  id               String       @id @default(uuid())
+  conversationId   String
+  conversation     Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  proposerId       String
+  proposer         User         @relation("DateProposer", fields: [proposerId], references: [id], onDelete: Cascade)
+  proposedDate     DateTime
+  proposedLocation String
+  status           String       @default("pending") // "pending", "accepted", "declined"
+  createdAt        DateTime     @default(now())
+}
+
+model PushSubscription {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
 }
 
 

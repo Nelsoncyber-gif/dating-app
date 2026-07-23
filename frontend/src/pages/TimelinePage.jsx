@@ -62,8 +62,12 @@ export default function TimelinePage() {
     setPosts((prev) => [{ ...newPost, likes: [], comments: [] }, ...prev]);
   }
 
+  function handlePostDeleted(postId) {
+    setPosts((prev) => prev.filter((p) => p.id !== postId));
+  }
+
   return (
-    <div className="pt-3">
+   <div className="pt-3 max-w-2xl mx-auto w-full">
       <h1 className="text-xl font-bold text-gray-900 px-4 mb-2">Timeline</h1>
 
       <div className="border-b border-gray-100 mb-3">
@@ -88,7 +92,7 @@ export default function TimelinePage() {
       )}
 
       {posts.map((post) => (
-        <PostCard key={post.id} post={post} currentUserId={user?.id} />
+        <PostCard key={post.id} post={post} currentUserId={user?.id} onDelete={handlePostDeleted} />
       ))}
 
       {viewingGroup && (

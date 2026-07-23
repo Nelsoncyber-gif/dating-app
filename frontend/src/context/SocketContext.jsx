@@ -11,6 +11,7 @@ const SOCKET_URL = API_BASE_URL.replace(/\/api\/?$/, '');
 export function SocketProvider({ children }) {
   const { user } = useAuth();
   const [connected, setConnected] = useState(false);
+  const [error, setError] = useState(null);
   const socketRef = useRef(null);
 
   useEffect(() => {
@@ -25,8 +26,15 @@ export function SocketProvider({ children }) {
     const socket = io(SOCKET_URL, { auth: { token } });
     socketRef.current = socket;
 
-    socket.on('connect', () => setConnected(true));
+    socket.on('connect', () => {
+      setConnected(true);
+      setError(null);
+    });
     socket.on('disconnect', () => setConnected(false));
+    socket.on('connect_error', (err) => {
+      console.error('Socket connection error:', err.message);
+      setError(err.message);
+    });
 
     return () => {
       socket.disconnect();
@@ -34,7 +42,7 @@ export function SocketProvider({ children }) {
   }, [user]);
 
   return (
-    <SocketContext.Provider value={{ socket: socketRef.current, connected }}>
+    <SocketContext.Provider value={{ socket: socketRef.current, connected, error }}>
       {children}
     </SocketContext.Provider>
   );

@@ -74,4 +74,53 @@ async function getBlockedUsers(req, res) {
   return res.json({ blocked: blocks.map((b) => b.blocked) });
 }
 
-module.exports = { reportUser, blockUser, unblockUser, getBlockedUsers };
+// POST /api/safety/emergency-contact { name, phone, email? }
+async function setEmergencyContact(req, res) {
+  const { name, phone, email } = req.body;
+  if (!name || !phone) {
+    return res.status(400).json({ error: 'Name and phone are required' });
+  }
+
+  const contact = await prisma.emergencyContact.upsert({
+    where: { userId: req.userId },
+    update: { name, phone, email: email || null },
+    create: { userId: req.userId, name, phone, email: email || null },
+  });
+
+  return res.json({ contact });
+}
+
+// GET /api/safety/emergency-contact
+async function getEmergencyContact(req, res) {
+  const contact = await prisma.emergencyContact.findUnique({
+    where: { userId: req.userId },
+  });
+  return res.json({ contact });
+}
+
+// POST /api/safety/safety-check/start { durationMinutes, location? }
+async function startSafetyCheck(req, res) {
+  const { durationMinutes, location } = req.body;
+  if (!durationMinutes || durationMinutes < 1) {
+    return res.status(400).json({ error: 'A valid duration in minutes is required' });
+  }
+
+  const deadline = new Date(Date.now() + durationMinutes * 60000);
+
+  // Remove any existing safety check first (userId is unique)
+  await prisma.safetyCheck.deleteMany({ where: { userId: req.userId } });
+
+  const check = await prisma.safetyCheck.create({
+    data: { userId: req.userId, checkInTime: new Date(), deadline, location: location || null },
+  });
+
+  return res.json({ check });
+}
+
+// POST /api/safety/safety-check/check-in
+async function checkIn(req, res) {
+  await prisma.safetyCheck.deleteMany({ where: { userId: req.userId } });
+  return res.json({ success: true });
+}
+
+module.exports = { reportUser, blockUser, unblockUser, getBlockedUsers, setEmergencyContact, getEmergencyContact, startSafetyCheck, checkIn };

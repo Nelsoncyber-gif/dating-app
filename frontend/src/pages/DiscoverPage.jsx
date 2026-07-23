@@ -1,22 +1,45 @@
 import { useEffect, useState } from 'react';
-import { Heart, ShieldAlert, X, Sparkles } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Heart, ShieldAlert, X, Sparkles, Info, Star, Zap, RotateCcw, Filter, Crown, Calendar } from 'lucide-react';
 import api from '../api/client';
 import ReportBlockModal from '../components/safety/ReportBlockModal';
+import ProfilePreviewModal from '../components/profile/ProfilePreviewModal';
+import OnboardingModal from '../components/onboarding/OnboardingModal';
 
 export default function DiscoverPage() {
+  const navigate = useNavigate();
   const [candidates, setCandidates] = useState([]);
   const [loading, setLoading] = useState(true);
   const [matchPopup, setMatchPopup] = useState(null);
   const [safetyTarget, setSafetyTarget] = useState(null);
+  const [previewUserId, setPreviewUserId] = useState(null);
+  const [lastSwiped, setLastSwiped] = useState(null);
+  const [showFilters, setShowFilters] = useState(false);
+  const [filters, setFilters] = useState({ minAge: '', maxAge: '', gender: '' });
+  const [showTutorial, setShowTutorial] = useState(false);
 
   useEffect(() => {
     loadCandidates();
+    // Show onboarding tutorial if first visit
+    if (!localStorage.getItem('hasSeenTutorial')) {
+      setShowTutorial(true);
+    }
   }, []);
+
+  function closeTutorial() {
+    setShowTutorial(false);
+    localStorage.setItem('hasSeenTutorial', 'true');
+  }
 
   async function loadCandidates() {
     setLoading(true);
     try {
-      const res = await api.get('/discover');
+      const params = new URLSearchParams();
+      if (filters.minAge) params.set('minAge', filters.minAge);
+      if (filters.maxAge) params.set('maxAge', filters.maxAge);
+      if (filters.gender) params.set('gender', filters.gender);
+      const qs = params.toString();
+      const res = await api.get(`/discover${qs ? `?${qs}` : ''}`);
       setCandidates(res.data.candidates);
     } catch (err) {
       console.error('Failed to load candidates', err);
@@ -26,7 +49,7 @@ export default function DiscoverPage() {
   }
 
   async function handleSwipe(candidateId, direction) {
-    // Remove immediately from the grid for a snappy feel, then confirm with the server
+    setLastSwiped({ id: candidateId, index: candidates.findIndex(c => c.id === candidateId) });
     setCandidates((prev) => prev.filter((c) => c.id !== candidateId));
     try {
       const res = await api.post('/swipe', { swipedId: candidateId, direction });
@@ -36,6 +59,36 @@ export default function DiscoverPage() {
       }
     } catch (err) {
       console.error('Swipe failed', err);
+      if (err.response?.status === 403) {
+        alert(err.response.data.error);
+      }
+    }
+  }
+
+  async function handleSuperLike(candidateId) {
+    setCandidates((prev) => prev.filter((c) => c.id !== candidateId));
+    try {
+      const res = await api.post('/swipe', { swipedId: candidateId, direction: 'LIKE', isSuperLike: true });
+      if (res.data.matched) {
+        const candidate = candidates.find((c) => c.id === candidateId);
+        setMatchPopup(candidate);
+      }
+    } catch (err) {
+      alert(err.response?.data?.error || 'Super like failed');
+      // Put the candidate back if it failed
+      loadCandidates();
+    }
+  }
+
+  async function handleRewind() {
+    if (!lastSwiped) return;
+    try {
+      await api.post('/swipe/undo');
+      // Reload candidates to get the undone one back
+      loadCandidates();
+      setLastSwiped(null);
+    } catch (err) {
+      alert('Rewind failed');
     }
   }
 
@@ -46,7 +99,63 @@ export default function DiscoverPage() {
 
   return (
     <div className="p-4">
-      <h1 className="text-xl font-bold text-gray-900 mb-4">Discover</h1>
+      {/* Header with filters and rewind */}
+      <div className="flex justify-between items-center mb-4">
+        <button onClick={() => setShowFilters(true)} className="p-2 bg-gray-100 hover:bg-gray-200 rounded-full transition" title="Filters">
+          <Filter size={18} className="text-gray-600" />
+        </button>
+        <h1 className="text-xl font-bold text-gray-900">Discover</h1>
+        <div className="flex gap-2">
+          <button onClick={() => navigate('/likes')} className="p-2 bg-primary/10 hover:bg-primary/20 rounded-full transition" title="Who Liked You">
+            <Heart size={18} className="text-primary" />
+          </button>
+          <button onClick={() => navigate('/events')} className="p-2 bg-green-100 hover:bg-green-200 rounded-full transition" title="Events">
+            <Calendar size={18} className="text-green-600" />
+          </button>
+          <button onClick={() => navigate('/premium')} className="p-2 bg-amber-100 hover:bg-amber-200 rounded-full transition" title="Go Premium">
+            <Crown size={18} className="text-amber-500" />
+          </button>
+          {lastSwiped && (
+            <button onClick={handleRewind} className="p-2 bg-blue-100 hover:bg-blue-200 text-blue-600 rounded-full transition animate-pulse" title="Rewind">
+              <RotateCcw size={18} />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Filter Modal */}
+      {showFilters && (
+        <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50">
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl p-5 w-full max-w-sm">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-bold">Filters</h2>
+              <button onClick={() => setShowFilters(false)} className="p-1"><X size={20} /></button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="text-sm text-gray-600 block mb-1">Min Age</label>
+                <input type="number" min="18" max="99" value={filters.minAge} onChange={e => setFilters({ ...filters, minAge: e.target.value })} className="w-full border rounded-lg p-2 text-sm" />
+              </div>
+              <div>
+                <label className="text-sm text-gray-600 block mb-1">Max Age</label>
+                <input type="number" min="18" max="99" value={filters.maxAge} onChange={e => setFilters({ ...filters, maxAge: e.target.value })} className="w-full border rounded-lg p-2 text-sm" />
+              </div>
+              <div>
+                <label className="text-sm text-gray-600 block mb-1">Gender</label>
+                <select value={filters.gender} onChange={e => setFilters({ ...filters, gender: e.target.value })} className="w-full border rounded-lg p-2 text-sm">
+                  <option value="">All</option>
+                  <option value="MALE">Male</option>
+                  <option value="FEMALE">Female</option>
+                  <option value="OTHER">Other</option>
+                </select>
+              </div>
+              <button onClick={() => { loadCandidates(); setShowFilters(false); }} className="w-full bg-primary text-white rounded-lg py-2.5 text-sm font-medium">
+                Apply Filters
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {loading && (
         <p className="text-center text-gray-400 text-sm mt-12">Finding people near you…</p>
@@ -60,10 +169,14 @@ export default function DiscoverPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-3">
+      {/* Fixed: Removed the extra '>' that was causing the parse error */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 max-w-6xl mx-auto px-2">
         {candidates.map((candidate) => (
           <div key={candidate.id} className="bg-white rounded-xl shadow-sm overflow-hidden">
-            <div className="aspect-[3/4] bg-gray-100 relative">
+            <div 
+              className="aspect-[3/4] bg-gray-100 relative cursor-pointer group"
+              onClick={() => setPreviewUserId(candidate.id)}
+            >
               {candidate.photos?.[0]?.url ? (
                 <img
                   src={candidate.photos[0].url}
@@ -75,7 +188,11 @@ export default function DiscoverPage() {
                   {candidate.name[0]}
                 </div>
               )}
+              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition flex items-start justify-end p-2 opacity-0 group-hover:opacity-100">
+                <Info size={18} className="text-white drop-shadow-md" />
+              </div>
             </div>
+            
             <div className="p-2">
               <p className="font-semibold text-sm text-gray-900 truncate">
                 {candidate.name}, {calculateAge(candidate.dob)}
@@ -83,12 +200,35 @@ export default function DiscoverPage() {
               {candidate.location && (
                 <p className="text-xs text-gray-400 truncate">{candidate.location}</p>
               )}
+              {/* Compatibility badge */}
+              {candidate.sharedInterests > 0 && (
+                <div className="flex items-center gap-1 mt-1">
+                  <Sparkles size={12} className="text-amber-500" />
+                  <span className="text-[11px] text-amber-600 font-medium">
+                    {candidate.sharedInterests} shared interest{candidate.sharedInterests > 1 ? 's' : ''}
+                  </span>
+                </div>
+              )}
+              {/* Boost badge */}
+              {candidate.score >= 50 && candidate.sharedInterests === 0 && (
+                <div className="flex items-center gap-1 mt-1">
+                  <Zap size={12} className="text-purple-500" />
+                  <span className="text-[11px] text-purple-600 font-medium">Boosted profile</span>
+                </div>
+              )}
               <div className="flex gap-2 mt-2">
                 <button
                   onClick={() => handleSwipe(candidate.id, 'PASS')}
                   className="flex-1 bg-gray-100 hover:bg-gray-200 rounded-lg py-2 flex items-center justify-center transition"
                 >
                   <X size={16} className="text-gray-500" />
+                </button>
+                <button
+                  onClick={() => handleSuperLike(candidate.id)}
+                  className="flex-1 bg-blue-50 hover:bg-blue-100 rounded-lg py-2 flex items-center justify-center transition"
+                  title="Super Like"
+                >
+                  <Star size={16} className="text-blue-500" fill="currentColor" />
                 </button>
                 <button
                   onClick={() => handleSwipe(candidate.id, 'LIKE')}
@@ -99,7 +239,7 @@ export default function DiscoverPage() {
               </div>
               <button
                 onClick={() => setSafetyTarget(candidate)}
-                className="mt-2 flex items-center gap-1 text-[11px] text-gray-400 hover:text-primary"
+                className="mt-2 flex items-center gap-1 text-[11px] text-gray-400 hover:text-primary mx-auto"
               >
                 <ShieldAlert size={12} /> Report or block
               </button>
@@ -134,6 +274,17 @@ export default function DiscoverPage() {
           onBlocked={() => setSafetyTarget(null)}
         />
       )}
+
+      {previewUserId && (
+        <ProfilePreviewModal
+          userId={previewUserId}
+          onClose={() => setPreviewUserId(null)}
+          onLike={(id) => { handleSwipe(id, 'LIKE'); setPreviewUserId(null); }}
+          onPass={(id) => { handleSwipe(id, 'PASS'); setPreviewUserId(null); }}
+        />
+      )}
+
+      {showTutorial && <OnboardingModal onClose={closeTutorial} />}
     </div>
   );
 }

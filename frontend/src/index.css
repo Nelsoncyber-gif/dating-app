@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:is(.dark *));
+
 @theme {
   --color-primary: #fb3b6e;
   --color-primary-dark: #e11d54;
@@ -15,4 +17,10 @@ body {
   margin: 0;
   font-family: var(--font-sans);
   background: #faf9fb;
+}
+
+.dark body,
+body.dark {
+  background: #111827;
+  color: #f3f4f6;
 }

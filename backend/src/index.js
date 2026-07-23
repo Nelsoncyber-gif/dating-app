@@ -15,6 +15,11 @@ const profileRoutes = require('./routes/profile');
 const storyRoutes = require('./routes/stories');
 const verificationRoutes = require('./routes/verification');
 const notificationRoutes = require('./routes/notifications');
+const socialRoutes = require('./routes/social');
+const premiumRoutes = require('./routes/premium');
+const eventRoutes = require('./routes/events');
+const dateRoutes = require('./routes/dates');
+const pushRoutes = require('./routes/push');
 const { registerChatHandlers } = require('./sockets/chat');
 
 const app = express();
@@ -32,6 +37,10 @@ const io = new Server(server, {
 app.locals.io = io;
 
 app.use(cors({ origin: process.env.CLIENT_URL || '*' }));
+
+// Premium webhook MUST be mounted before express.json() so Stripe signature verification works
+app.use('/api/premium', premiumRoutes);
+
 app.use(express.json());
 
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
@@ -43,9 +52,13 @@ app.use('/api/posts', postRoutes);
 app.use('/api/communities', communityRoutes);
 app.use('/api/safety', safetyRoutes);
 app.use('/api/profile', profileRoutes);
-app.use('/api/profile', verificationRoutes);
+app.use('/api/verification', verificationRoutes);
 app.use('/api/stories', storyRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/social', socialRoutes);
+app.use('/api/events', eventRoutes);
+app.use('/api/dates', dateRoutes);
+app.use('/api/push', pushRoutes);
 
 // Central error handler - keeps controllers free of try/catch boilerplate for unexpected errors
 app.use((err, req, res, next) => {

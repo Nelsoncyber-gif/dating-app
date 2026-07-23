@@ -35,6 +35,8 @@ async function getActiveStories(req, res) {
       id: story.id,
       mediaUrl: story.mediaUrl,
       caption: story.caption,
+      type: story.type,
+      backgroundColor: story.backgroundColor,
       createdAt: story.createdAt,
       expiresAt: story.expiresAt,
       viewCount: story.views.length,
@@ -57,14 +59,36 @@ async function getUserStories(req, res) {
 }
 
 // POST /api/stories - multipart with "media" file field + optional caption
+// OR JSON body with type: "text", caption, backgroundColor for text-only stories
 async function createStory(req, res) {
   const userId = req.userId;
-  const { caption } = req.body;
+  const { caption, type, backgroundColor } = req.body;
 
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + TWENTY_FOUR_HOURS_MS);
+
+  // Text-only story (no media file)
   if (!req.file) {
-    return res.status(400).json({ error: 'A media file (image or video) is required' });
+    if (!caption || !caption.trim()) {
+      return res.status(400).json({ error: 'A media file or text content is required' });
+    }
+
+    const story = await prisma.story.create({
+      data: {
+        userId,
+        mediaUrl: null,
+        caption: caption.trim(),
+        type: 'text',
+        backgroundColor: backgroundColor || '#ec4899',
+        createdAt: now,
+        expiresAt,
+      },
+    });
+
+    return res.status(201).json({ story });
   }
 
+  // Media story (image or video)
   const isVideo = req.file.mimetype.startsWith('video/');
 
   const uploadResult = await new Promise((resolve, reject) => {
@@ -75,14 +99,15 @@ async function createStory(req, res) {
     stream.end(req.file.buffer);
   });
 
-  const now = new Date();
   const story = await prisma.story.create({
     data: {
       userId,
       mediaUrl: uploadResult.secure_url,
-      caption: caption || null,
+      caption: caption?.trim() || null,
+      type: 'media',
+      backgroundColor: null,
       createdAt: now,
-      expiresAt: new Date(now.getTime() + TWENTY_FOUR_HOURS_MS),
+      expiresAt,
     },
   });
 
@@ -98,11 +123,13 @@ async function viewStory(req, res) {
   if (!story) return res.status(404).json({ error: 'Story not found' });
   if (story.expiresAt < new Date()) return res.status(410).json({ error: 'This story has expired' });
 
-  await prisma.storyView.upsert({
+  // Use findFirst + create to avoid upsert race conditions
+  const existing = await prisma.storyView.findUnique({
     where: { storyId_userId: { storyId: id, userId } },
-    update: {},
-    create: { storyId: id, userId },
   });
+  if (!existing) {
+    await prisma.storyView.create({ data: { storyId: id, userId } });
+  }
 
   return res.json({ viewed: true });
 }
@@ -120,6 +147,33 @@ async function deleteStory(req, res) {
   return res.json({ deleted: true });
 }
 
+// GET /api/stories/:id/viewers - list users who viewed this story (owner only)
+async function getStoryViewers(req, res) {
+  const { id } = req.params;
+  const userId = req.userId;
+
+  const story = await prisma.story.findUnique({ where: { id } });
+  if (!story) return res.status(404).json({ error: 'Story not found' });
+  if (story.userId !== userId) return res.status(403).json({ error: 'Only the story owner can see viewers' });
+
+  const views = await prisma.storyView.findMany({
+    where: { storyId: id },
+    include: {
+      user: { select: { id: true, name: true, photos: { where: { isProfilePic: true }, take: 1 } } },
+    },
+    orderBy: { viewedAt: 'desc' },
+  });
+
+  const viewers = views.map((v) => ({
+    id: v.user.id,
+    name: v.user.name,
+    photo: v.user.photos?.[0]?.url || null,
+    viewedAt: v.viewedAt,
+  }));
+
+  return res.json({ viewers });
+}
+
 module.exports = {
-  getActiveStories, getUserStories, createStory, viewStory, deleteStory,
+  getActiveStories, getUserStories, createStory, viewStory, deleteStory, getStoryViewers,
 };
