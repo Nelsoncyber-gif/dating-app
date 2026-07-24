@@ -3,6 +3,8 @@ require('dotenv').config();
 const express = require('express');
 const http = require('http');
 const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const { Server } = require('socket.io');
 
 const authRoutes = require('./routes/auth');
@@ -25,23 +27,47 @@ const { registerChatHandlers } = require('./sockets/chat');
 const app = express();
 const server = http.createServer(app);
 
+// Security: CORS — use specific origin in production, not wildcard
+const allowedOrigin = process.env.CLIENT_URL || 'http://localhost:5173';
+
 const io = new Server(server, {
-  cors: { origin: process.env.CLIENT_URL || '*', methods: ['GET', 'POST'] },
+  cors: { origin: allowedOrigin, methods: ['GET', 'POST'], credentials: true },
 });
-
-
 
 // Makes the Socket.IO instance available to REST controllers (via req.app.locals.io)
 // so actions like matching or liking a post can push a live notification,
 // not just messages sent through the socket connection itself.
 app.locals.io = io;
 
-app.use(cors({ origin: process.env.CLIENT_URL || '*' }));
+// Security: HTTP headers (X-Content-Type-Options, X-Frame-Options, etc.)
+app.use(helmet());
+
+app.use(cors({ origin: allowedOrigin, credentials: true }));
+
+// Security: Rate limiting — 100 requests per 15 minutes per IP
+const globalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again later.' },
+});
+app.use('/api/', globalLimiter);
+
+// Stricter rate limit for auth endpoints (brute force protection)
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many authentication attempts, please try again later.' },
+});
+app.use('/api/auth/', authLimiter);
 
 // Premium webhook MUST be mounted before express.json() so Stripe signature verification works
 app.use('/api/premium', premiumRoutes);
 
-app.use(express.json());
+app.use(express.json({ limit: '1mb' }));
 
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
 
@@ -67,6 +93,11 @@ app.use((err, req, res, next) => {
 });
 
 registerChatHandlers(io);
+
+// Catch unhandled promise rejections so they don't crash the process
+process.on('unhandledRejection', (reason) => {
+  console.error('UnhandledPromiseRejection:', reason);
+});
 
 const PORT = process.env.PORT || 4000;
 server.listen(PORT, () => {

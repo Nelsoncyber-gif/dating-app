@@ -10,8 +10,16 @@ async function getConversations(req, res) {
       participants: { include: { user: { select: { id: true, name: true, photos: true } } } },
       messages: { orderBy: { createdAt: 'desc' }, take: 1 },
     },
-    orderBy: { createdAt: 'desc' },
   });
+
+  // Sort by last message time (most recent first), like WhatsApp.
+  // Conversations with no messages sink to the bottom.
+  conversations.sort((a, b) => {
+    const aTime = a.messages[0]?.createdAt ? new Date(a.messages[0].createdAt).getTime() : 0;
+    const bTime = b.messages[0]?.createdAt ? new Date(b.messages[0].createdAt).getTime() : 0;
+    return bTime - aTime;
+  });
+
   return res.json({ conversations });
 }
 
@@ -27,7 +35,10 @@ async function getMessages(req, res) {
 
   const messages = await prisma.message.findMany({
     where: { conversationId: id },
-    include: { sender: { select: { id: true, name: true } } },
+    include: {
+      sender: { select: { id: true, name: true } },
+      reactions: { include: { user: { select: { id: true, name: true } } } },
+    },
     orderBy: { createdAt: 'asc' },
   });
   return res.json({ messages });
@@ -96,11 +107,13 @@ async function uploadMediaChat(req, res) {
   if (!participant) return res.status(403).json({ error: 'Not a participant of this conversation' });
 
   const isVideo = req.file.mimetype.startsWith('video/');
-  const mediaType = isVideo ? 'video' : 'image';
+  const isAudio = req.file.mimetype.startsWith('audio/');
+  const mediaType = isVideo ? 'video' : isAudio ? 'audio' : 'image';
 
   const uploadResult = await new Promise((resolve, reject) => {
+    const resourceType = isVideo ? 'video' : isAudio ? 'video' : 'image'; // Cloudinary uses 'video' for audio too
     const stream = cloudinary.uploader.upload_stream(
-      { folder: 'dating-app/chat', resource_type: isVideo ? 'video' : 'image' },
+      { folder: 'dating-app/chat', resource_type: resourceType },
       (err, result) => (err ? reject(err) : resolve(result)),
     );
     stream.end(req.file.buffer);

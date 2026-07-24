@@ -98,9 +98,9 @@ async function getEmergencyContact(req, res) {
   return res.json({ contact });
 }
 
-// POST /api/safety/safety-check/start { durationMinutes, location? }
+// POST /api/safety/safety-check/start { durationMinutes, location?, shareLocation?, sharedWith? }
 async function startSafetyCheck(req, res) {
-  const { durationMinutes, location } = req.body;
+  const { durationMinutes, location, shareLocation, sharedWith } = req.body;
   if (!durationMinutes || durationMinutes < 1) {
     return res.status(400).json({ error: 'A valid duration in minutes is required' });
   }
@@ -111,7 +111,14 @@ async function startSafetyCheck(req, res) {
   await prisma.safetyCheck.deleteMany({ where: { userId: req.userId } });
 
   const check = await prisma.safetyCheck.create({
-    data: { userId: req.userId, checkInTime: new Date(), deadline, location: location || null },
+    data: {
+      userId: req.userId,
+      checkInTime: new Date(),
+      deadline,
+      location: location || null,
+      shareLocation: shareLocation || false,
+      sharedWith: sharedWith || null,
+    },
   });
 
   return res.json({ check });
@@ -123,4 +130,27 @@ async function checkIn(req, res) {
   return res.json({ success: true });
 }
 
-module.exports = { reportUser, blockUser, unblockUser, getBlockedUsers, setEmergencyContact, getEmergencyContact, startSafetyCheck, checkIn };
+// POST /api/safety/safety-check/share-location { latitude, longitude }
+async function shareLocation(req, res) {
+  const { latitude, longitude } = req.body;
+  if (latitude == null || longitude == null) {
+    return res.status(400).json({ error: 'Latitude and longitude are required' });
+  }
+
+  const check = await prisma.safetyCheck.update({
+    where: { userId: req.userId },
+    data: { lastLat: latitude, lastLng: longitude },
+  });
+
+  return res.json({ check });
+}
+
+// GET /api/safety/safety-check/status
+async function getSafetyCheckStatus(req, res) {
+  const check = await prisma.safetyCheck.findUnique({
+    where: { userId: req.userId },
+  });
+  return res.json({ check });
+}
+
+module.exports = { reportUser, blockUser, unblockUser, getBlockedUsers, setEmergencyContact, getEmergencyContact, startSafetyCheck, checkIn, shareLocation, getSafetyCheckStatus };

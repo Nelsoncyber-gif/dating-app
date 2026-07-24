@@ -4,6 +4,7 @@ const { requireAuth } = require('../middleware/auth');
 const {
   reportUser, blockUser, unblockUser, getBlockedUsers,
   setEmergencyContact, getEmergencyContact, startSafetyCheck, checkIn,
+  shareLocation, getSafetyCheckStatus,
 } = require('../controllers/safetyController');
 
 router.post('/report', requireAuth, reportUser);
@@ -14,5 +15,7 @@ router.post('/emergency-contact', requireAuth, setEmergencyContact);
 router.get('/emergency-contact', requireAuth, getEmergencyContact);
 router.post('/safety-check/start', requireAuth, startSafetyCheck);
 router.post('/safety-check/check-in', requireAuth, checkIn);
+router.post('/safety-check/share-location', requireAuth, shareLocation);
+router.get('/safety-check/status', requireAuth, getSafetyCheckStatus);
 
 module.exports = router;

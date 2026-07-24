@@ -36,6 +36,8 @@ model User {
   gender        Gender
   bio           String?
   location      String?
+  latitude      Float?
+  longitude     Float?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
   isActive      Boolean  @default(true)
@@ -74,6 +76,7 @@ model User {
   interests      UserInterest[]
   superLikesUsed Int      @default(0)
   boostedUntil   DateTime?
+  lastDailyPickAt DateTime?
 
   isPhotoVerified    Boolean            @default(false)
   emergencyContact   EmergencyContact?
@@ -90,6 +93,10 @@ model User {
   eventAttendees    EventAttendee[]
   sentDateProposals DateProposal[] @relation("DateProposer")
   pushSubscriptions  PushSubscription[]
+
+  profilePrompts    ProfilePrompt[]
+  videoIntro        VideoIntro?
+  messageReactions  MessageReaction[]
 }
 
 model Photo {
@@ -126,6 +133,8 @@ model Match {
   createdAt     DateTime @default(now())
   conversationId String?  @unique
   conversation   Conversation? @relation(fields: [conversationId], references: [id])
+
+  milestones    Milestone[]
 
   @@unique([userAId, userBId])
 
@@ -168,6 +177,7 @@ model Message {
   mediaType       String?
   createdAt       DateTime     @default(now())
   readAt          DateTime?
+  reactions       MessageReaction[]
   @@index([conversationId, createdAt])
 }
 
@@ -328,6 +338,10 @@ model SafetyCheck {
   deadline     DateTime
   location     String?
   status       String   @default("active") // active, checked_in, alerted
+  shareLocation Boolean @default(false)
+  sharedWith   String?
+  lastLat      Float?
+  lastLng      Float?
 }
 
 model Event {
@@ -380,5 +394,40 @@ model PushSubscription {
   createdAt DateTime @default(now())
 }
 
+model MessageReaction {
+  id        String   @id @default(uuid())
+  messageId String
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  emoji     String
+  createdAt DateTime @default(now())
+  @@unique([messageId, userId])
+}
 
+model ProfilePrompt {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  question  String
+  answer    String
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+}
 
+model Milestone {
+  id        String   @id @default(uuid())
+  matchId   String
+  match     Match    @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  type      String
+  reachedAt DateTime @default(now())
+  @@unique([matchId, type])
+}
+
+model VideoIntro {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  videoUrl  String
+  createdAt DateTime @default(now())
+}

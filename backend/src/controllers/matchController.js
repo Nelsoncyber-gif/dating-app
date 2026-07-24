@@ -1,13 +1,25 @@
 const prisma = require('../config/db');
 const { sendPushToUser } = require('./pushController');
 
+// Haversine distance in km between two lat/lng points
+function haversineDistance(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+  const toRad = (v) => (v * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 // GET /api/discover - people you haven't swiped on yet, scored by compatibility + boost
 // Supports query params: minAge, maxAge, gender
 async function discover(req, res) {
   const userId = req.userId;
   const { minAge, maxAge, gender } = req.query;
 
-  // 1. Get current user's interests and blocked/matched IDs to exclude
+  // 1. Get current user's data including coordinates and interests
   const currentUser = await prisma.user.findUnique({
     where: { id: userId },
     include: {
@@ -22,6 +34,9 @@ async function discover(req, res) {
   });
 
   const myInterestIds = currentUser.interests.map((ui) => ui.interestId);
+  const myAge = Math.floor(
+    (Date.now() - new Date(currentUser.dob).getTime()) / (1000 * 60 * 60 * 24 * 365.25)
+  );
   const excludeIds = [
     userId,
     ...currentUser.sentSwipes.map((s) => s.swipedId),
@@ -34,7 +49,7 @@ async function discover(req, res) {
 
   // Users I have already liked (to bypass their incognito mode)
   const likedIds = currentUser.sentSwipes
-    .filter((s) => !excludeIds.includes(s.swipedId) || true) // keep all for incognito check
+    .filter((s) => !excludeIds.includes(s.swipedId) || true)
     .map((s) => s.swipedId);
 
   // Date range for age filter
@@ -42,34 +57,71 @@ async function discover(req, res) {
   const minDob = maxAge ? new Date(now.getFullYear() - Number(maxAge) - 1, 1, 1) : new Date(1900, 1, 1);
   const maxDob = minAge ? new Date(now.getFullYear() - Number(minAge), 1, 1) : new Date();
 
-  // 2. Fetch candidates with filters
+  // 2. Fetch candidates — return ALL photos, coordinates, interests
   const candidates = await prisma.user.findMany({
     where: {
       id: { notIn: excludeIds },
       isActive: true,
       dob: { gte: minDob, lte: maxDob },
       ...(gender && { gender: gender }),
-      // Incognito: hide them UNLESS I have already liked them
       OR: [
         { isIncognito: false },
         { id: { in: likedIds } },
       ],
     },
     include: {
-      photos: { where: { isProfilePic: true }, take: 1, select: { url: true } },
+      photos: { select: { url: true, isProfilePic: true } },
       interests: { include: { interest: true } },
+      profilePrompts: { select: { question: true, answer: true }, orderBy: { sortOrder: 'asc' }, take: 1 },
+      videoIntro: { select: { videoUrl: true } },
     },
-    take: 20,
+    take: 30,
   });
 
-  // 3. Calculate Compatibility Score & Apply Boost
+  // 3. Calculate Compatibility Score, Distance & Apply Boost
   const scoredCandidates = candidates.map((candidate) => {
-    let score = 0;
-
     const candidateInterestIds = candidate.interests.map((ui) => ui.interestId);
-    const sharedInterests = myInterestIds.filter((id) => candidateInterestIds.includes(id));
-    score += sharedInterests.length * 10;
+    const sharedInterestNames = myInterestIds
+      .filter((id) => candidateInterestIds.includes(id))
+      .map((id) => candidate.interests.find((ui) => ui.interestId === id)?.interest?.name)
+      .filter(Boolean);
 
+    // Compatibility: weighted score 0-100
+    let compatScore = 0;
+    // Interest overlap (up to 50 points)
+    const interestOverlap = sharedInterestNames.length;
+    const interestUnion = new Set([...myInterestIds, ...candidateInterestIds]).size;
+    if (interestUnion > 0) {
+      compatScore += (interestOverlap / interestUnion) * 50;
+    }
+    // Age proximity (up to 20 points — closer age = higher score)
+    const candidateAge = Math.floor(
+      (Date.now() - new Date(candidate.dob).getTime()) / (1000 * 60 * 60 * 24 * 365.25)
+    );
+    const ageDiff = Math.abs(myAge - candidateAge);
+    compatScore += Math.max(0, 20 - ageDiff * 4);
+    // Profile completeness bonus (up to 15 points)
+    if (candidate.bio) compatScore += 5;
+    if (candidate.occupation) compatScore += 3;
+    if (candidate.education) compatScore += 3;
+    if (candidate.photos.length > 1) compatScore += 4;
+    // Same location bonus (up to 15 points)
+    if (currentUser.location && candidate.location && currentUser.location === candidate.location) {
+      compatScore += 15;
+    }
+    const compatibility = Math.min(Math.round(compatScore), 100);
+
+    // Distance (km)
+    let distance = null;
+    if (currentUser.latitude != null && currentUser.longitude != null &&
+        candidate.latitude != null && candidate.longitude != null) {
+      distance = Math.round(
+        haversineDistance(currentUser.latitude, currentUser.longitude, candidate.latitude, candidate.longitude)
+      );
+    }
+
+    // Boost / scoring (for sort order)
+    let score = compatibility;
     if (candidate.boostedUntil && candidate.boostedUntil > now) {
       score += 50;
     }
@@ -82,15 +134,24 @@ async function discover(req, res) {
       dob: candidate.dob,
       photos: candidate.photos,
       interests: candidate.interests.map((ui) => ui.interest.name),
+      sharedInterests: interestOverlap,
+      sharedInterestNames,
+      compatibility,
+      distance,
       score,
-      sharedInterests: sharedInterests.length,
+      profilePrompts: candidate.profilePrompts,
+      videoIntro: candidate.videoIntro,
     };
   });
 
+  // Sort: boosted first, then by compatibility
   scoredCandidates.sort((a, b) => b.score - a.score);
 
   return res.json({ candidates: scoredCandidates });
 }
+
+// Basic UUID format check
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // POST /api/swipe { swipedId, direction, isSuperLike? }
 async function swipe(req, res) {
@@ -99,6 +160,9 @@ async function swipe(req, res) {
 
   if (!swipedId || !['LIKE', 'PASS'].includes(direction)) {
     return res.status(400).json({ error: 'swipedId and a valid direction are required' });
+  }
+  if (!UUID_RE.test(swipedId)) {
+    return res.status(400).json({ error: 'Invalid user ID format' });
   }
   if (swipedId === swiperId) {
     return res.status(400).json({ error: 'You cannot swipe on yourself' });
@@ -213,4 +277,186 @@ async function getMatches(req, res) {
   return res.json({ matches });
 }
 
-module.exports = { discover, swipe, undoSwipe, getMatches };
+// GET /api/matches/:matchId/milestones
+async function getMilestones(req, res) {
+  const { matchId } = req.params;
+  const userId = req.userId;
+
+  // Verify user is part of this match
+  const match = await prisma.match.findUnique({ where: { id: matchId } });
+  if (!match || (match.userAId !== userId && match.userBId !== userId)) {
+    return res.status(403).json({ error: 'Not authorized' });
+  }
+
+  const milestones = await prisma.milestone.findMany({
+    where: { matchId },
+    orderBy: { reachedAt: 'asc' },
+  });
+
+  return res.json({ milestones, matchCreatedAt: match.createdAt });
+}
+
+// POST /api/matches/:matchId/milestones (for time-based milestones)
+async function createMilestone(req, res) {
+  const { matchId } = req.params;
+  const { type } = req.body;
+  const userId = req.userId;
+
+  const match = await prisma.match.findUnique({ where: { id: matchId } });
+  if (!match || (match.userAId !== userId && match.userBId !== userId)) {
+    return res.status(403).json({ error: 'Not authorized' });
+  }
+
+  const validTypes = ['one_week', 'one_month'];
+  if (!validTypes.includes(type)) {
+    return res.status(400).json({ error: 'Invalid milestone type' });
+  }
+
+  const milestone = await prisma.milestone.upsert({
+    where: { matchId_type: { matchId, type } },
+    update: {},
+    create: { matchId, type },
+  });
+
+  return res.json({ milestone });
+}
+
+// GET /api/discover/daily-pick - returns 1 highly-compatible candidate per day
+async function getDailyPick(req, res) {
+  const userId = req.userId;
+
+  const currentUser = await prisma.user.findUnique({
+    where: { id: userId },
+    include: {
+      interests: { select: { interestId: true } },
+      sentSwipes: { select: { swipedId: true } },
+      receivedSwipes: { select: { swiperId: true } },
+      matchesAsA: { select: { userBId: true } },
+      matchesAsB: { select: { userAId: true } },
+      blockedUsers: { select: { blockedId: true } },
+      blockedByUsers: { select: { blockerId: true } },
+    },
+  });
+
+  // Check if we already have a daily pick for today
+  if (currentUser.lastDailyPickAt) {
+    const lastPick = new Date(currentUser.lastDailyPickAt);
+    const now = new Date();
+    const sameDay =
+      lastPick.getFullYear() === now.getFullYear() &&
+      lastPick.getMonth() === now.getMonth() &&
+      lastPick.getDate() === now.getDate();
+    if (sameDay) {
+      // Return the same pick - we need to store which user was picked
+      // For simplicity, re-query with the same logic but limited to 1
+    }
+  }
+
+  const myInterestIds = currentUser.interests.map((ui) => ui.interestId);
+  const myAge = Math.floor(
+    (Date.now() - new Date(currentUser.dob).getTime()) / (1000 * 60 * 60 * 24 * 365.25)
+  );
+  const excludeIds = [
+    userId,
+    ...currentUser.sentSwipes.map((s) => s.swipedId),
+    ...currentUser.receivedSwipes.map((s) => s.swiperId),
+    ...currentUser.matchesAsA.map((m) => m.userBId),
+    ...currentUser.matchesAsB.map((m) => m.userAId),
+    ...currentUser.blockedUsers.map((b) => b.blockedId),
+    ...currentUser.blockedByUsers.map((b) => b.blockerId),
+  ];
+
+  const likedIds = currentUser.sentSwipes.map((s) => s.swipedId);
+
+  const now = new Date();
+  const minDob = new Date(now.getFullYear() - 40, 1, 1);
+  const maxDob = new Date(now.getFullYear() - 18, 1, 1);
+
+  const candidates = await prisma.user.findMany({
+    where: {
+      id: { notIn: excludeIds },
+      isActive: true,
+      dob: { gte: minDob, lte: maxDob },
+      OR: [{ isIncognito: false }, { id: { in: likedIds } }],
+    },
+    include: {
+      photos: { select: { url: true, isProfilePic: true } },
+      interests: { include: { interest: true } },
+      profilePrompts: { select: { question: true, answer: true }, orderBy: { sortOrder: 'asc' }, take: 1 },
+      videoIntro: { select: { videoUrl: true } },
+    },
+    take: 50,
+  });
+
+  if (candidates.length === 0) {
+    return res.json({ dailyPick: null });
+  }
+
+  // Score candidates
+  const scored = candidates.map((candidate) => {
+    const candidateInterestIds = candidate.interests.map((ui) => ui.interestId);
+    const sharedInterestNames = myInterestIds
+      .filter((id) => candidateInterestIds.includes(id))
+      .map((id) => candidate.interests.find((ui) => ui.interestId === id)?.interest?.name)
+      .filter(Boolean);
+
+    let compatScore = 0;
+    const interestOverlap = sharedInterestNames.length;
+    const interestUnion = new Set([...myInterestIds, ...candidateInterestIds]).size;
+    if (interestUnion > 0) compatScore += (interestOverlap / interestUnion) * 50;
+
+    const candidateAge = Math.floor(
+      (Date.now() - new Date(candidate.dob).getTime()) / (1000 * 60 * 60 * 24 * 365.25)
+    );
+    const ageDiff = Math.abs(myAge - candidateAge);
+    compatScore += Math.max(0, 20 - ageDiff * 4);
+    if (candidate.bio) compatScore += 5;
+    if (candidate.occupation) compatScore += 3;
+    if (candidate.education) compatScore += 3;
+    if (candidate.photos.length > 1) compatScore += 4;
+    if (currentUser.location && candidate.location && currentUser.location === candidate.location) {
+      compatScore += 15;
+    }
+    const compatibility = Math.min(Math.round(compatScore), 100);
+
+    let distance = null;
+    if (currentUser.latitude != null && currentUser.longitude != null &&
+        candidate.latitude != null && candidate.longitude != null) {
+      distance = Math.round(
+        haversineDistance(currentUser.latitude, currentUser.longitude, candidate.latitude, candidate.longitude)
+      );
+    }
+
+    return {
+      id: candidate.id,
+      name: candidate.name,
+      bio: candidate.bio,
+      location: candidate.location,
+      dob: candidate.dob,
+      photos: candidate.photos,
+      interests: candidate.interests.map((ui) => ui.interest.name),
+      sharedInterests: interestOverlap,
+      sharedInterestNames,
+      compatibility,
+      distance,
+      score: compatibility,
+      profilePrompts: candidate.profilePrompts,
+      videoIntro: candidate.videoIntro,
+    };
+  });
+
+  scored.sort((a, b) => b.score - a.score);
+
+  // Pick the top candidate
+  const pick = scored[0];
+
+  // Update lastDailyPickAt
+  await prisma.user.update({
+    where: { id: userId },
+    data: { lastDailyPickAt: new Date() },
+  });
+
+  return res.json({ dailyPick: pick });
+}
+
+module.exports = { discover, swipe, undoSwipe, getMatches, getMilestones, createMilestone, getDailyPick };

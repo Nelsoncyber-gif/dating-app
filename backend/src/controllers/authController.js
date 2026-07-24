@@ -135,6 +135,8 @@ async function me(req, res) {
       education: true,
       zodiacSign: true,
       loveLanguage: true,
+      latitude: true,
+      longitude: true,
       interests: { include: { interest: { select: { name: true } } } },
     },
   });

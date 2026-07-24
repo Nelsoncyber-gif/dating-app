@@ -17,39 +17,43 @@ function registerCallHandlers(io, socket) {
 
   // Caller initiates: { conversationId, toUserId, offer, callType: 'audio' | 'video' }
   socket.on('call_offer', async ({ conversationId, toUserId, offer, callType }) => {
-    // Confirm the caller actually shares this conversation with the callee
-    const participant = await prisma.conversationParticipant.findUnique({
-      where: { conversationId_userId: { conversationId, userId } },
-    });
-    if (!participant) return;
-
-    // Track this call for logging
-    activeCalls.set(`${userId}:${conversationId}`, {
-      callerId: userId,
-      receiverId: toUserId,
-      type: callType,
-      startedAt: new Date(),
-    });
-
-    const targetSockets = userSockets.get(toUserId);
-    if (!targetSockets || targetSockets.size === 0) {
-      // Callee isn't online — log as missed
-      activeCalls.delete(`${userId}:${conversationId}`);
-      await prisma.callLog.create({
-        data: { callerId: userId, receiverId: toUserId, type: callType, status: 'missed', duration: 0 },
+    try {
+      // Confirm the caller actually shares this conversation with the callee
+      const participant = await prisma.conversationParticipant.findUnique({
+        where: { conversationId_userId: { conversationId, userId } },
       });
-      socket.emit('call_unavailable', { conversationId });
-      return;
+      if (!participant) return;
+
+      // Track this call for logging
+      activeCalls.set(`${userId}:${conversationId}`, {
+        callerId: userId,
+        receiverId: toUserId,
+        type: callType,
+        startedAt: new Date(),
+      });
+
+      const targetSockets = userSockets.get(toUserId);
+      if (!targetSockets || targetSockets.size === 0) {
+        // Callee isn't online — log as missed
+        activeCalls.delete(`${userId}:${conversationId}`);
+        await prisma.callLog.create({
+          data: { callerId: userId, receiverId: toUserId, type: callType, status: 'missed', duration: 0 },
+        });
+        socket.emit('call_unavailable', { conversationId });
+        return;
+      }
+
+      targetSockets.forEach((sockId) => {
+        io.to(sockId).emit('call_incoming', {
+          conversationId,
+          fromUserId: userId,
+          offer,
+          callType,
+        });
+      });
+    } catch (err) {
+      console.error('call_offer error:', err);
     }
-
-    targetSockets.forEach((sockId) => {
-      io.to(sockId).emit('call_incoming', {
-        conversationId,
-        fromUserId: userId,
-        offer,
-        callType,
-      });
-    });
   });
 
   // Callee accepts: relay their answer back to the caller
@@ -62,25 +66,29 @@ function registerCallHandlers(io, socket) {
 
   // Either side declines/cancels before connecting
   socket.on('call_decline', async ({ toUserId, conversationId }) => {
-    const targetSockets = userSockets.get(toUserId);
-    targetSockets?.forEach((sockId) => {
-      io.to(sockId).emit('call_declined', { conversationId, fromUserId: userId });
-    });
-
-    // Log the declined call — figure out who the caller was
-    const callKey = `${toUserId}:${conversationId}`;
-    const callInfo = activeCalls.get(callKey);
-    if (callInfo) {
-      activeCalls.delete(callKey);
-      await prisma.callLog.create({
-        data: {
-          callerId: callInfo.callerId,
-          receiverId: callInfo.receiverId,
-          type: callInfo.type,
-          status: 'rejected',
-          duration: 0,
-        },
+    try {
+      const targetSockets = userSockets.get(toUserId);
+      targetSockets?.forEach((sockId) => {
+        io.to(sockId).emit('call_declined', { conversationId, fromUserId: userId });
       });
+
+      // Log the declined call — figure out who the caller was
+      const callKey = `${toUserId}:${conversationId}`;
+      const callInfo = activeCalls.get(callKey);
+      if (callInfo) {
+        activeCalls.delete(callKey);
+        await prisma.callLog.create({
+          data: {
+            callerId: callInfo.callerId,
+            receiverId: callInfo.receiverId,
+            type: callInfo.type,
+            status: 'rejected',
+            duration: 0,
+          },
+        });
+      }
+    } catch (err) {
+      console.error('call_decline error:', err);
     }
   });
 
@@ -94,31 +102,35 @@ function registerCallHandlers(io, socket) {
 
   // Either side hangs up once connected
   socket.on('call_end', async ({ toUserId, conversationId }) => {
-    const targetSockets = userSockets.get(toUserId);
-    targetSockets?.forEach((sockId) => {
-      io.to(sockId).emit('call_ended', { conversationId, fromUserId: userId });
-    });
-
-    // Log the completed call with duration
-    // Try both possible keys since either side might hang up
-    let callKey = `${userId}:${conversationId}`;
-    let callInfo = activeCalls.get(callKey);
-    if (!callInfo) {
-      callKey = `${toUserId}:${conversationId}`;
-      callInfo = activeCalls.get(callKey);
-    }
-    if (callInfo) {
-      activeCalls.delete(callKey);
-      const durationSec = Math.floor((Date.now() - callInfo.startedAt.getTime()) / 1000);
-      await prisma.callLog.create({
-        data: {
-          callerId: callInfo.callerId,
-          receiverId: callInfo.receiverId,
-          type: callInfo.type,
-          status: 'completed',
-          duration: durationSec,
-        },
+    try {
+      const targetSockets = userSockets.get(toUserId);
+      targetSockets?.forEach((sockId) => {
+        io.to(sockId).emit('call_ended', { conversationId, fromUserId: userId });
       });
+
+      // Log the completed call with duration
+      // Try both possible keys since either side might hang up
+      let callKey = `${userId}:${conversationId}`;
+      let callInfo = activeCalls.get(callKey);
+      if (!callInfo) {
+        callKey = `${toUserId}:${conversationId}`;
+        callInfo = activeCalls.get(callKey);
+      }
+      if (callInfo) {
+        activeCalls.delete(callKey);
+        const durationSec = Math.floor((Date.now() - callInfo.startedAt.getTime()) / 1000);
+        await prisma.callLog.create({
+          data: {
+            callerId: callInfo.callerId,
+            receiverId: callInfo.receiverId,
+            type: callInfo.type,
+            status: 'completed',
+            duration: durationSec,
+          },
+        });
+      }
+    } catch (err) {
+      console.error('call_end error:', err);
     }
   });
 
