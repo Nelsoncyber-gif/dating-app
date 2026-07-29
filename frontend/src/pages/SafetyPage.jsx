@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Shield, Phone, Clock, CheckCircle, AlertTriangle, ArrowLeft } from 'lucide-react';
+import { Shield, Phone, Clock, CheckCircle, AlertTriangle, ArrowLeft, MapPin, Navigation } from 'lucide-react';
 import api from '../api/client';
 
 export default function SafetyPage() {
@@ -10,9 +10,23 @@ export default function SafetyPage() {
   const [activeCheck, setActiveCheck] = useState(null);
   const [timeLeft, setTimeLeft] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [shareLocation, setShareLocation] = useState(false);
+  const [locationSharingActive, setLocationSharingActive] = useState(false);
+  const watchIdRef = useRef(null);
+  const shareIntervalRef = useRef(null);
 
   useEffect(() => {
     loadEmergencyContact();
+    loadSafetyCheckStatus();
+    return () => {
+      // Cleanup on unmount
+      if (watchIdRef.current != null) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+      }
+      if (shareIntervalRef.current) {
+        clearInterval(shareIntervalRef.current);
+      }
+    };
   }, []);
 
   async function loadEmergencyContact() {
@@ -23,6 +37,23 @@ export default function SafetyPage() {
       }
     } catch (err) {
       // 404 is fine — no contact saved yet
+    }
+  }
+
+  async function loadSafetyCheckStatus() {
+    try {
+      const res = await api.get('/safety/safety-check/status');
+      if (res.data.check) {
+        setActiveCheck(res.data.check);
+        const remaining = Math.floor((new Date(res.data.check.deadline) - Date.now()) / 1000);
+        setTimeLeft(Math.max(0, remaining));
+        if (res.data.check.shareLocation) {
+          setShareLocation(true);
+          startLocationSharing();
+        }
+      }
+    } catch (err) {
+      // No active check
     }
   }
 
@@ -44,12 +75,45 @@ export default function SafetyPage() {
 
   async function startCheck() {
     try {
-      const res = await api.post('/safety/safety-check/start', { durationMinutes: duration });
+      const res = await api.post('/safety/safety-check/start', {
+        durationMinutes: duration,
+        shareLocation,
+        sharedWith: contact.id || null,
+      });
       setActiveCheck(res.data.check);
       setTimeLeft(duration * 60);
+      if (shareLocation) {
+        startLocationSharing();
+      }
     } catch (err) {
       alert('Failed to start safety check.');
     }
+  }
+
+  function startLocationSharing() {
+    if (!navigator.geolocation) return;
+    setLocationSharingActive(true);
+
+    // Watch position for real-time updates
+    watchIdRef.current = navigator.geolocation.watchPosition(
+      (pos) => {
+        // Send to backend every 30 seconds
+        api.post('/safety/safety-check/share-location', {
+          latitude: pos.coords.latitude,
+          longitude: pos.coords.longitude,
+        }).catch(() => {});
+      },
+      () => {},
+      { enableHighAccuracy: true }
+    );
+  }
+
+  function stopLocationSharing() {
+    if (watchIdRef.current != null) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
+    }
+    setLocationSharingActive(false);
   }
 
   async function handleCheckIn() {
@@ -57,6 +121,7 @@ export default function SafetyPage() {
       await api.post('/safety/safety-check/check-in');
       setActiveCheck(null);
       setTimeLeft(null);
+      stopLocationSharing();
       alert('Checked in successfully! Stay safe.');
     } catch (err) {
       alert('Failed to check in.');
@@ -145,6 +210,27 @@ export default function SafetyPage() {
               <option value={120}>2 Hours</option>
               <option value={180}>3 Hours</option>
             </select>
+
+            {/* Location Sharing Toggle */}
+            <div className="flex items-center justify-between bg-gray-50 rounded-lg p-3">
+              <div className="flex items-center gap-2">
+                <Navigation size={16} className="text-blue-500" />
+                <div>
+                  <p className="text-sm font-medium text-gray-900">Share live location</p>
+                  <p className="text-xs text-gray-500">Your emergency contact can track your location</p>
+                </div>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={shareLocation}
+                  onChange={(e) => setShareLocation(e.target.checked)}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500"></div>
+              </label>
+            </div>
+
             <button
               onClick={startCheck}
               className="w-full bg-red-500 text-white rounded-lg py-2.5 text-sm font-medium hover:bg-red-600 transition"
@@ -159,6 +245,13 @@ export default function SafetyPage() {
               <p className="text-3xl font-bold text-gray-900">{formatTime(timeLeft)}</p>
               <p className="text-xs text-gray-500 mt-1">Time remaining to check in</p>
             </div>
+            {/* Location sharing indicator */}
+            {locationSharingActive && (
+              <div className="flex items-center justify-center gap-2 bg-blue-50 text-blue-600 rounded-lg p-2 text-sm">
+                <MapPin size={14} className="animate-pulse" />
+                <span>Location being shared with emergency contact</span>
+              </div>
+            )}
             <button
               onClick={handleCheckIn}
               className="w-full bg-green-500 text-white rounded-lg py-3 text-sm font-bold flex items-center justify-center gap-2 hover:bg-green-600 transition"

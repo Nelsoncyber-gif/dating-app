@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, MoreVertical, Phone, Send, Smile, Video, Lightbulb, Calendar, Check, CheckCheck, Paperclip, X } from 'lucide-react';
+import { ArrowLeft, MoreVertical, Phone, Send, Smile, Video, Lightbulb, Calendar, Check, CheckCheck, Paperclip, X, Heart, Mic, Sparkles, MapPin } from 'lucide-react';
 import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useSocket } from '../context/SocketContext';
@@ -8,6 +8,7 @@ import { useCall } from '../context/CallContext';
 import ReportBlockModal from '../components/safety/ReportBlockModal';
 import EmojiPicker from '../components/chat/EmojiPicker';
 import DateProposalCard from '../components/chat/DateProposalCard';
+import MilestonesBar from '../components/chat/MilestonesBar';
 
 const ICEBREAKERS = [
   "What's the best trip you've ever taken?",
@@ -20,6 +21,14 @@ const ICEBREAKERS = [
   "What's your go-to comfort food?",
 ];
 
+const REACTION_EMOJIS = {
+  heart: '\u2764\ufe0f',
+  laugh: '\ud83d\ude02',
+  wow: '\ud83d\ude2e',
+  sad: '\ud83d\ude22',
+  fire: '\ud83d\udd25',
+};
+
 export default function ChatRoomPage() {
   const { id: conversationId } = useParams();
   const navigate = useNavigate();
@@ -29,6 +38,7 @@ export default function ChatRoomPage() {
 
   const [conversation, setConversation] = useState(null);
   const [messages, setMessages] = useState([]);
+  const [matchId, setMatchId] = useState(null);
   const [text, setText] = useState('');
   const [loading, setLoading] = useState(true);
   const [otherTyping, setOtherTyping] = useState(false);
@@ -38,10 +48,20 @@ export default function ChatRoomPage() {
   const [proposals, setProposals] = useState([]);
   const [showDateModal, setShowDateModal] = useState(false);
   const [dateForm, setDateForm] = useState({ proposedDate: '', proposedLocation: '' });
+  const [showDateIdeas, setShowDateIdeas] = useState(false);
+  const [dateIdeas, setDateIdeas] = useState([]);
+  const [loadingIdeas, setLoadingIdeas] = useState(false);
   const [mediaFile, setMediaFile] = useState(null);
   const [mediaPreview, setMediaPreview] = useState(null);
   const [mediaType, setMediaType] = useState(null);
   const [uploadingMedia, setUploadingMedia] = useState(false);
+  const [reactingToMsg, setReactingToMsg] = useState(null);
+  const longPressTimerRef = useRef(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
+  const recordingIntervalRef = useRef(null);
   const bottomRef = useRef(null);
   const typingTimeoutRef = useRef(null);
   const mediaInputRef = useRef(null);
@@ -103,12 +123,29 @@ export default function ChatRoomPage() {
     socket.on('date_proposal', handleDateProposal);
     socket.on('date_proposal_update', handleDateProposalUpdate);
 
+    function handleReaction({ messageId, reaction, removed }) {
+      setMessages((prev) =>
+        prev.map((msg) => {
+          if (msg.id !== messageId) return msg;
+          const reactions = msg.reactions || [];
+          if (removed) {
+            return { ...msg, reactions: reactions.filter((r) => r.userId !== user?.id) };
+          } else {
+            const filtered = reactions.filter((r) => r.userId !== user?.id);
+            return { ...msg, reactions: [...filtered, reaction] };
+          }
+        })
+      );
+    }
+    socket.on('message_reaction', handleReaction);
+
     return () => {
       socket.off('new_message', handleNewMessage);
       socket.off('user_typing', handleTyping);
       socket.off('messages_read', handleMessagesRead);
       socket.off('date_proposal', handleDateProposal);
       socket.off('date_proposal_update', handleDateProposalUpdate);
+      socket.off('message_reaction', handleReaction);
     };
   }, [socket, conversationId, user?.id]);
 
@@ -128,6 +165,8 @@ export default function ChatRoomPage() {
       setConversation(conv || null);
       setMessages(messagesRes.data.messages);
       setProposals(proposalsRes.data.proposals);
+      // Find matchId for this conversation (for milestones)
+      if (conv?.matchId) setMatchId(conv.matchId);
       // Mark existing messages as read
       socket?.emit('mark_read', { conversationId });
     } catch (err) {
@@ -237,6 +276,103 @@ export default function ChatRoomPage() {
     }
   }
 
+  // --- Voice note recording ---
+  async function startRecording() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (e) => {
+        audioChunksRef.current.push(e.data);
+      };
+
+      mediaRecorder.onstop = () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        stream.getTracks().forEach((track) => track.stop());
+        sendVoiceNote(audioBlob);
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+      setRecordingTime(0);
+      recordingIntervalRef.current = setInterval(() => {
+        setRecordingTime((prev) => prev + 1);
+      }, 1000);
+    } catch (err) {
+      alert('Microphone access denied. Please allow microphone access.');
+    }
+  }
+
+  function stopRecording() {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      mediaRecorderRef.current.stop();
+    }
+    setIsRecording(false);
+    clearInterval(recordingIntervalRef.current);
+  }
+
+  function cancelRecording() {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      mediaRecorderRef.current.ondataavailable = null;
+      mediaRecorderRef.current.onstop = null;
+      mediaRecorderRef.current.stop();
+    }
+    setIsRecording(false);
+    clearInterval(recordingIntervalRef.current);
+    audioChunksRef.current = [];
+  }
+
+  function sendVoiceNote(audioBlob) {
+    setUploadingMedia(true);
+    const formData = new FormData();
+    formData.append('file', audioBlob, 'voice-note.webm');
+    api.post(`/conversations/${conversationId}/media`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+      .then((res) => {
+        socket.emit('send_message', {
+          conversationId,
+          content: '',
+          mediaUrl: res.data.url,
+          mediaType: 'audio',
+        }, (callback) => {
+          if (callback?.error) console.error(callback.error);
+        });
+      })
+      .catch((err) => {
+        console.error('Voice note upload failed', err);
+        alert('Failed to send voice note');
+      })
+      .finally(() => setUploadingMedia(false));
+  }
+
+  function formatRecordingTime(seconds) {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m}:${s.toString().padStart(2, '0')}`;
+  }
+
+  async function loadDateIdeas() {
+    setLoadingIdeas(true);
+    try {
+      const res = await api.get(`/dates/ideas?conversationId=${conversationId}`);
+      setDateIdeas(res.data.ideas || []);
+      setShowDateIdeas(true);
+    } catch (err) {
+      alert('Failed to load date ideas');
+    } finally {
+      setLoadingIdeas(false);
+    }
+  }
+
+  function proposeIdea(idea) {
+    setDateForm({ proposedDate: '', proposedLocation: idea.title });
+    setShowDateIdeas(false);
+    setShowDateModal(true);
+  }
+
   const otherParticipant = conversation?.participants.find((p) => p.user.id !== user?.id)?.user;
   const displayName = conversation?.isGroup ? conversation.name : otherParticipant?.name;
   const avatarUrl = conversation?.isGroup ? null : otherParticipant?.photos?.[0]?.url;
@@ -302,6 +438,8 @@ export default function ChatRoomPage() {
         />
       )}
 
+      {matchId && <MilestonesBar matchId={matchId} />}
+
       <div className="flex-1 overflow-y-auto px-3 py-3">
         {loading && <p className="text-center text-gray-400 text-sm mt-8">Loading messages…</p>}
 
@@ -334,8 +472,22 @@ export default function ChatRoomPage() {
               const isMine = msg.senderId === user?.id;
               const showSenderName = conversation?.isGroup && !isMine;
               const hasMedia = msg.mediaUrl && msg.mediaType;
+              const msgReactions = msg.reactions || [];
+              const myReaction = msgReactions.find((r) => r.userId === user?.id);
               return (
-                <div key={`msg-${msg.id}`} className={`flex flex-col ${isMine ? 'items-end' : 'items-start'}`}>
+                <div
+                  key={`msg-${msg.id}`}
+                  className={`flex flex-col ${isMine ? 'items-end' : 'items-start'}`}
+                  onMouseDown={() => {
+                    longPressTimerRef.current = setTimeout(() => setReactingToMsg(msg.id), 500);
+                  }}
+                  onMouseUp={() => clearTimeout(longPressTimerRef.current)}
+                  onMouseLeave={() => clearTimeout(longPressTimerRef.current)}
+                  onTouchStart={() => {
+                    longPressTimerRef.current = setTimeout(() => setReactingToMsg(msg.id), 500);
+                  }}
+                  onTouchEnd={() => clearTimeout(longPressTimerRef.current)}
+                >
                   {showSenderName && (
                     <span className="text-[10px] text-gray-400 ml-1 mb-0.5">{msg.sender?.name}</span>
                   )}
@@ -362,12 +514,60 @@ export default function ChatRoomPage() {
                         className="max-w-full max-h-64"
                       />
                     )}
+                    {hasMedia && msg.mediaType === 'audio' && (
+                      <audio src={msg.mediaUrl} controls className="max-w-full" />
+                    )}
                     {msg.content && (
                       <div className={`text-sm ${hasMedia ? 'px-3 py-2' : ''}`}>
                         {msg.content}
                       </div>
                     )}
                   </div>
+                  {/* Reaction badges */}
+                  {msgReactions.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-0.5 mx-1">
+                      {Object.entries(
+                        msgReactions.reduce((acc, r) => {
+                          acc[r.emoji] = (acc[r.emoji] || 0) + 1;
+                          return acc;
+                        }, {})
+                      ).map(([emoji, count]) => (
+                        <span
+                          key={emoji}
+                          className={`text-xs px-1.5 py-0.5 rounded-full border ${
+                            myReaction?.emoji === emoji
+                              ? 'border-primary bg-primary/10'
+                              : 'border-gray-200 bg-gray-50'
+                          }`}
+                        >
+                          {REACTION_EMOJIS[emoji]} {count > 1 && count}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {/* Reaction picker */}
+                  {reactingToMsg === msg.id && (
+                    <div className="flex gap-1 mt-1 bg-white dark:bg-gray-800 shadow-lg rounded-full px-2 py-1 border border-gray-100">
+                      {Object.entries(REACTION_EMOJIS).map(([key, emoji]) => (
+                        <button
+                          key={key}
+                          onClick={() => {
+                            socket?.emit('react_to_message', { messageId: msg.id, emoji: key });
+                            setReactingToMsg(null);
+                          }}
+                          className="text-lg hover:scale-125 transition-transform px-1"
+                        >
+                          {emoji}
+                        </button>
+                      ))}
+                      <button
+                        onClick={() => setReactingToMsg(null)}
+                        className="text-gray-400 text-xs ml-1"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  )}
                   {/* Read receipt indicators for sent messages */}
                   {isMine && (
                     <span className="mt-0.5 mr-1">
@@ -430,6 +630,27 @@ export default function ChatRoomPage() {
         </div>
       )}
 
+      {/* Recording UI */}
+      {isRecording && (
+        <div className="flex items-center gap-3 px-4 py-3 bg-red-50 border-t border-red-100 shrink-0">
+          <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse" />
+          <span className="text-sm font-medium text-red-600">{formatRecordingTime(recordingTime)}</span>
+          <div className="flex-1" />
+          <button
+            onClick={cancelRecording}
+            className="text-gray-500 hover:text-gray-700 px-3 py-1.5 text-sm font-medium"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={stopRecording}
+            className="bg-red-500 text-white rounded-full px-4 py-1.5 text-sm font-medium hover:bg-red-600 transition"
+          >
+            Send
+          </button>
+        </div>
+      )}
+
       <form onSubmit={handleSend} className="flex items-center gap-2 px-3 py-3 border-t border-gray-100 shrink-0">
         <button
           type="button"
@@ -469,19 +690,39 @@ export default function ChatRoomPage() {
         >
           <Calendar size={20} />
         </button>
+        <button
+          type="button"
+          onClick={loadDateIdeas}
+          className="text-gray-400 hover:text-amber-500 p-2"
+          title="Date Ideas"
+        >
+          <Sparkles size={20} />
+        </button>
         <input
           value={text}
           onChange={(e) => handleTypingInput(e.target.value)}
           placeholder="Type a message…"
           className="flex-1 bg-gray-50 rounded-full px-4 py-2.5 text-sm focus:outline-none"
         />
-        <button
-          type="submit"
-          disabled={(!text.trim() && !mediaFile) || uploadingMedia}
-          className="bg-primary text-white rounded-full p-2.5 disabled:opacity-40 transition"
-        >
-          <Send size={18} />
-        </button>
+        {/* Mic button shows when no text, Send button shows when text */}
+        {text.trim() ? (
+          <button
+            type="submit"
+            disabled={uploadingMedia}
+            className="bg-primary text-white rounded-full p-2.5 disabled:opacity-40 transition"
+          >
+            <Send size={18} />
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={startRecording}
+            className="bg-primary text-white rounded-full p-2.5 hover:bg-primary/90 transition"
+            title="Record voice note"
+          >
+            <Mic size={18} />
+          </button>
+        )}
       </form>
 
       {/* Date Proposal Modal */}
@@ -527,6 +768,40 @@ export default function ChatRoomPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Date Ideas Bottom Sheet */}
+      {showDateIdeas && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-end">
+          <div className="bg-white dark:bg-gray-800 rounded-t-2xl w-full max-h-[70vh] overflow-y-auto p-4">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-lg text-gray-900 dark:text-white flex items-center gap-2">
+                <Sparkles size={20} className="text-amber-500" /> Date Ideas
+              </h3>
+              <button onClick={() => setShowDateIdeas(false)} className="text-gray-400 hover:text-gray-600">
+                <X size={20} />
+              </button>
+            </div>
+            {loadingIdeas ? (
+              <p className="text-center text-gray-400 text-sm py-8">Loading ideas...</p>
+            ) : (
+              <div className="space-y-3">
+                {dateIdeas.map((idea, i) => (
+                  <div key={i} className="bg-gray-50 dark:bg-gray-700 rounded-xl p-4">
+                    <h4 className="font-semibold text-gray-900 dark:text-white">{idea.title}</h4>
+                    <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">{idea.description}</p>
+                    <button
+                      onClick={() => proposeIdea(idea)}
+                      className="mt-3 bg-primary text-white text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-primary/90 transition flex items-center gap-1"
+                    >
+                      <Calendar size={12} /> Propose this date
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}

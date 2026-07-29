@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Heart, ShieldAlert, X, Sparkles, Info, Star, Zap, RotateCcw, Filter, Crown, Calendar } from 'lucide-react';
+import { Heart, ShieldAlert, X, Sparkles, Star, Zap, RotateCcw, Filter, Crown, Calendar, Gem } from 'lucide-react';
 import api from '../api/client';
 import ReportBlockModal from '../components/safety/ReportBlockModal';
 import ProfilePreviewModal from '../components/profile/ProfilePreviewModal';
 import OnboardingModal from '../components/onboarding/OnboardingModal';
+import SwipeCard from '../components/discover/SwipeCard';
 
 export default function DiscoverPage() {
   const navigate = useNavigate();
@@ -17,10 +18,11 @@ export default function DiscoverPage() {
   const [showFilters, setShowFilters] = useState(false);
   const [filters, setFilters] = useState({ minAge: '', maxAge: '', gender: '' });
   const [showTutorial, setShowTutorial] = useState(false);
+  const [dailyPick, setDailyPick] = useState(null);
 
   useEffect(() => {
     loadCandidates();
-    // Show onboarding tutorial if first visit
+    loadDailyPick();
     if (!localStorage.getItem('hasSeenTutorial')) {
       setShowTutorial(true);
     }
@@ -48,13 +50,38 @@ export default function DiscoverPage() {
     }
   }
 
-  async function handleSwipe(candidateId, direction) {
-    setLastSwiped({ id: candidateId, index: candidates.findIndex(c => c.id === candidateId) });
-    setCandidates((prev) => prev.filter((c) => c.id !== candidateId));
+  async function loadDailyPick() {
     try {
-      const res = await api.post('/swipe', { swipedId: candidateId, direction });
+      const res = await api.get('/discover/daily-pick');
+      setDailyPick(res.data.dailyPick);
+    } catch (err) {
+      console.error('Failed to load daily pick', err);
+    }
+  }
+
+  async function handleDailyPickLike() {
+    if (!dailyPick) return;
+    try {
+      const res = await api.post('/swipe', { swipedId: dailyPick.id, direction: 'LIKE', isSuperLike: true });
       if (res.data.matched) {
-        const candidate = candidates.find((c) => c.id === candidateId);
+        setMatchPopup(dailyPick);
+      }
+      setDailyPick(null);
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to like daily pick');
+    }
+  }
+
+  async function handleSwipe(direction) {
+    const candidate = candidates[0];
+    if (!candidate) return;
+
+    setLastSwiped({ id: candidate.id, direction });
+    setCandidates((prev) => prev.slice(1));
+
+    try {
+      const res = await api.post('/swipe', { swipedId: candidate.id, direction });
+      if (res.data.matched) {
         setMatchPopup(candidate);
       }
     } catch (err) {
@@ -65,17 +92,18 @@ export default function DiscoverPage() {
     }
   }
 
-  async function handleSuperLike(candidateId) {
-    setCandidates((prev) => prev.filter((c) => c.id !== candidateId));
+  async function handleSuperLike() {
+    const candidate = candidates[0];
+    if (!candidate) return;
+
+    setCandidates((prev) => prev.slice(1));
     try {
-      const res = await api.post('/swipe', { swipedId: candidateId, direction: 'LIKE', isSuperLike: true });
+      const res = await api.post('/swipe', { swipedId: candidate.id, direction: 'LIKE', isSuperLike: true });
       if (res.data.matched) {
-        const candidate = candidates.find((c) => c.id === candidateId);
         setMatchPopup(candidate);
       }
     } catch (err) {
       alert(err.response?.data?.error || 'Super like failed');
-      // Put the candidate back if it failed
       loadCandidates();
     }
   }
@@ -84,7 +112,6 @@ export default function DiscoverPage() {
     if (!lastSwiped) return;
     try {
       await api.post('/swipe/undo');
-      // Reload candidates to get the undone one back
       loadCandidates();
       setLastSwiped(null);
     } catch (err) {
@@ -92,32 +119,32 @@ export default function DiscoverPage() {
     }
   }
 
-  function calculateAge(dob) {
-    const diff = Date.now() - new Date(dob).getTime();
-    return Math.floor(diff / (1000 * 60 * 60 * 24 * 365.25));
+  function handleReportBlock() {
+    const candidate = candidates[0];
+    if (candidate) setSafetyTarget(candidate);
   }
 
   return (
-    <div className="p-4">
-      {/* Header with filters and rewind */}
-      <div className="flex justify-between items-center mb-4">
+    <div className="flex flex-col h-full max-w-md mx-auto">
+      {/* Header */}
+      <div className="flex justify-between items-center px-4 py-3 shrink-0">
         <button onClick={() => setShowFilters(true)} className="p-2 bg-gray-100 hover:bg-gray-200 rounded-full transition" title="Filters">
           <Filter size={18} className="text-gray-600" />
         </button>
         <h1 className="text-xl font-bold text-gray-900">Discover</h1>
-        <div className="flex gap-2">
+        <div className="flex gap-1.5">
           <button onClick={() => navigate('/likes')} className="p-2 bg-primary/10 hover:bg-primary/20 rounded-full transition" title="Who Liked You">
-            <Heart size={18} className="text-primary" />
+            <Heart size={16} className="text-primary" />
           </button>
           <button onClick={() => navigate('/events')} className="p-2 bg-green-100 hover:bg-green-200 rounded-full transition" title="Events">
-            <Calendar size={18} className="text-green-600" />
+            <Calendar size={16} className="text-green-600" />
           </button>
           <button onClick={() => navigate('/premium')} className="p-2 bg-amber-100 hover:bg-amber-200 rounded-full transition" title="Go Premium">
-            <Crown size={18} className="text-amber-500" />
+            <Crown size={16} className="text-amber-500" />
           </button>
           {lastSwiped && (
-            <button onClick={handleRewind} className="p-2 bg-blue-100 hover:bg-blue-200 text-blue-600 rounded-full transition animate-pulse" title="Rewind">
-              <RotateCcw size={18} />
+            <button onClick={handleRewind} className="p-2 bg-blue-100 hover:bg-blue-200 text-blue-600 rounded-full transition" title="Rewind">
+              <RotateCcw size={16} />
             </button>
           )}
         </div>
@@ -157,97 +184,152 @@ export default function DiscoverPage() {
         </div>
       )}
 
-      {loading && (
-        <p className="text-center text-gray-400 text-sm mt-12">Finding people near you…</p>
-      )}
-
-      {!loading && candidates.length === 0 && (
-        <div className="text-center mt-16 text-gray-400">
-          <Sparkles className="mx-auto mb-2" size={32} />
-          <p className="text-sm">No new profiles right now.</p>
-          <p className="text-xs mt-1">Check back soon, or invite friends to join!</p>
-        </div>
-      )}
-
-      {/* Fixed: Removed the extra '>' that was causing the parse error */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 max-w-6xl mx-auto px-2">
-        {candidates.map((candidate) => (
-          <div key={candidate.id} className="bg-white rounded-xl shadow-sm overflow-hidden">
-            <div 
-              className="aspect-[3/4] bg-gray-100 relative cursor-pointer group"
-              onClick={() => setPreviewUserId(candidate.id)}
-            >
-              {candidate.photos?.[0]?.url ? (
-                <img
-                  src={candidate.photos[0].url}
-                  alt={candidate.name}
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center text-gray-300 text-4xl font-bold">
-                  {candidate.name[0]}
-                </div>
-              )}
-              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition flex items-start justify-end p-2 opacity-0 group-hover:opacity-100">
-                <Info size={18} className="text-white drop-shadow-md" />
-              </div>
+      {/* Daily Pick Section */}
+      {dailyPick && (
+        <div className="px-3 pt-2 pb-1 shrink-0">
+          <div className="relative rounded-2xl border-2 border-amber-400 bg-gradient-to-br from-amber-50 to-yellow-50 overflow-hidden shadow-sm">
+            <div className="absolute top-2 left-2 bg-amber-400 text-white text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 z-10">
+              <Gem size={10} /> Today's Pick
             </div>
-            
-            <div className="p-2">
-              <p className="font-semibold text-sm text-gray-900 truncate">
-                {candidate.name}, {calculateAge(candidate.dob)}
-              </p>
-              {candidate.location && (
-                <p className="text-xs text-gray-400 truncate">{candidate.location}</p>
-              )}
-              {/* Compatibility badge */}
-              {candidate.sharedInterests > 0 && (
-                <div className="flex items-center gap-1 mt-1">
-                  <Sparkles size={12} className="text-amber-500" />
-                  <span className="text-[11px] text-amber-600 font-medium">
-                    {candidate.sharedInterests} shared interest{candidate.sharedInterests > 1 ? 's' : ''}
+            <div
+              className="flex items-center gap-3 p-3 pt-8 cursor-pointer"
+              onClick={() => setPreviewUserId(dailyPick.id)}
+            >
+              <div className="w-16 h-20 rounded-xl overflow-hidden shrink-0 bg-gray-200">
+                {dailyPick.photos?.[0]?.url ? (
+                  <img src={dailyPick.photos[0].url} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-gray-400 text-lg font-bold">
+                    {dailyPick.name?.[0] || '?'}
+                  </div>
+                )}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-gray-900 text-sm">
+                  {dailyPick.name}, {Math.floor((Date.now() - new Date(dailyPick.dob).getTime()) / (1000 * 60 * 60 * 24 * 365.25))}
+                </p>
+                {dailyPick.bio && (
+                  <p className="text-xs text-gray-600 truncate mt-0.5">{dailyPick.bio}</p>
+                )}
+                <div className="flex items-center gap-2 mt-1.5">
+                  <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-medium">
+                    {dailyPick.compatibility}% match
                   </span>
+                  {dailyPick.sharedInterests > 0 && (
+                    <span className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full font-medium">
+                      {dailyPick.sharedInterests} shared interests
+                    </span>
+                  )}
+                  {dailyPick.distance != null && (
+                    <span className="text-[10px] text-gray-400">
+                      {dailyPick.distance} km
+                    </span>
+                  )}
                 </div>
-              )}
-              {/* Boost badge */}
-              {candidate.score >= 50 && candidate.sharedInterests === 0 && (
-                <div className="flex items-center gap-1 mt-1">
-                  <Zap size={12} className="text-purple-500" />
-                  <span className="text-[11px] text-purple-600 font-medium">Boosted profile</span>
-                </div>
-              )}
-              <div className="flex gap-2 mt-2">
-                <button
-                  onClick={() => handleSwipe(candidate.id, 'PASS')}
-                  className="flex-1 bg-gray-100 hover:bg-gray-200 rounded-lg py-2 flex items-center justify-center transition"
-                >
-                  <X size={16} className="text-gray-500" />
-                </button>
-                <button
-                  onClick={() => handleSuperLike(candidate.id)}
-                  className="flex-1 bg-blue-50 hover:bg-blue-100 rounded-lg py-2 flex items-center justify-center transition"
-                  title="Super Like"
-                >
-                  <Star size={16} className="text-blue-500" fill="currentColor" />
-                </button>
-                <button
-                  onClick={() => handleSwipe(candidate.id, 'LIKE')}
-                  className="flex-1 bg-primary/10 hover:bg-primary/20 rounded-lg py-2 flex items-center justify-center transition"
-                >
-                  <Heart size={16} className="text-primary" fill="currentColor" />
-                </button>
               </div>
               <button
-                onClick={() => setSafetyTarget(candidate)}
-                className="mt-2 flex items-center gap-1 text-[11px] text-gray-400 hover:text-primary mx-auto"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleDailyPickLike();
+                }}
+                className="p-2.5 bg-green-100 hover:bg-green-200 rounded-full transition shrink-0"
               >
-                <ShieldAlert size={12} /> Report or block
+                <Heart size={18} className="text-green-600" fill="currentColor" />
               </button>
             </div>
           </div>
-        ))}
+        </div>
+      )}
+
+      {/* Card Stack Area */}
+      <div className="flex-1 relative px-3 pb-2 min-h-0">
+        {loading && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="w-full max-w-sm aspect-[3/4] rounded-2xl bg-gray-100 animate-pulse" />
+          </div>
+        )}
+
+        {!loading && candidates.length === 0 && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="text-center text-gray-400 px-6">
+              <Sparkles className="mx-auto mb-3" size={40} />
+              <p className="text-lg font-medium mb-1">No new profiles right now</p>
+              <p className="text-sm">Check back soon, or invite friends to join!</p>
+            </div>
+          </div>
+        )}
+
+        {!loading && candidates.length > 0 && (
+          <div className="relative w-full h-full">
+            {/* Background cards (stacked effect) */}
+            {candidates.slice(1, 3).reverse().map((candidate, i) => (
+              <SwipeCard
+                key={candidate.id}
+                candidate={candidate}
+                isTop={false}
+                onSwipe={() => {}}
+                onSuperLike={() => {}}
+                onInfo={() => {}}
+              />
+            ))}
+
+            {/* Top swipeable card */}
+            <SwipeCard
+              key={candidates[0].id}
+              candidate={candidates[0]}
+              isTop={true}
+              onSwipe={handleSwipe}
+              onSuperLike={handleSuperLike}
+              onInfo={() => setPreviewUserId(candidates[0].id)}
+            />
+          </div>
+        )}
       </div>
 
+      {/* Action Buttons */}
+      {candidates.length > 0 && (
+        <div className="flex items-center justify-center gap-5 px-4 py-4 shrink-0">
+          <button
+            onClick={handleReportBlock}
+            className="p-3 bg-gray-100 hover:bg-red-100 rounded-full transition group"
+            title="Report / Block"
+          >
+            <ShieldAlert size={20} className="text-gray-500 group-hover:text-red-500" />
+          </button>
+          <button
+            onClick={() => handleSwipe('PASS')}
+            className="p-4 bg-white hover:bg-red-50 border-2 border-red-200 hover:border-red-400 rounded-full shadow-sm transition"
+            title="Pass"
+          >
+            <X size={28} className="text-red-500" />
+          </button>
+          <button
+            onClick={handleSuperLike}
+            className="p-3 bg-white hover:bg-blue-50 border-2 border-blue-200 hover:border-blue-400 rounded-full shadow-sm transition"
+            title="Super Like"
+          >
+            <Star size={24} className="text-blue-500" fill="currentColor" />
+          </button>
+          <button
+            onClick={() => handleSwipe('LIKE')}
+            className="p-4 bg-white hover:bg-green-50 border-2 border-green-200 hover:border-green-400 rounded-full shadow-sm transition"
+            title="Like"
+          >
+            <Heart size={28} className="text-green-500" fill="currentColor" />
+          </button>
+          {lastSwiped && (
+            <button
+              onClick={handleRewind}
+              className="p-3 bg-white hover:bg-yellow-50 border-2 border-yellow-200 hover:border-yellow-400 rounded-full shadow-sm transition"
+              title="Rewind"
+            >
+              <RotateCcw size={20} className="text-yellow-600" />
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Match Popup */}
       {matchPopup && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 px-6">
           <div className="bg-white rounded-2xl p-6 text-center max-w-xs w-full">
@@ -266,6 +348,7 @@ export default function DiscoverPage() {
         </div>
       )}
 
+      {/* Safety Modal */}
       {safetyTarget && (
         <ReportBlockModal
           targetUserId={safetyTarget.id}
@@ -275,15 +358,17 @@ export default function DiscoverPage() {
         />
       )}
 
+      {/* Profile Preview Modal */}
       {previewUserId && (
         <ProfilePreviewModal
           userId={previewUserId}
           onClose={() => setPreviewUserId(null)}
-          onLike={(id) => { handleSwipe(id, 'LIKE'); setPreviewUserId(null); }}
-          onPass={(id) => { handleSwipe(id, 'PASS'); setPreviewUserId(null); }}
+          onLike={(id) => { handleSwipe('LIKE'); setPreviewUserId(null); }}
+          onPass={(id) => { handleSwipe('PASS'); setPreviewUserId(null); }}
         />
       )}
 
+      {/* Onboarding Tutorial */}
       {showTutorial && <OnboardingModal onClose={closeTutorial} />}
     </div>
   );

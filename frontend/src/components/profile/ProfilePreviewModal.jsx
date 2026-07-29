@@ -110,6 +110,21 @@ export default function ProfilePreviewModal({ userId, onClose, onLike, onPass })
             </div>
           )}
 
+          {/* Profile Prompts */}
+          {user.profilePrompts && user.profilePrompts.length > 0 && (
+            <div className="mb-4">
+              <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Prompts</h3>
+              <div className="space-y-2">
+                {user.profilePrompts.map((p) => (
+                  <div key={p.id} className="bg-gray-50 rounded-lg p-3">
+                    <p className="text-xs text-gray-500 font-medium">{p.question}</p>
+                    <p className="text-sm text-gray-800 mt-0.5">{p.answer}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Action Buttons */}
           <div className="flex gap-3 mt-6">
             <button

@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { MapPin, Calendar, Mail, LogOut, ShieldCheck, X, Plus, Shield, Eye, EyeOff, Crown, Zap, Moon, Sun, Briefcase, GraduationCap, Heart, Upload, Trash2, Star, Camera } from 'lucide-react';
+import { MapPin, Calendar, Mail, LogOut, ShieldCheck, X, Plus, Shield, Eye, EyeOff, Crown, Zap, Moon, Sun, Briefcase, GraduationCap, Heart, Upload, Trash2, Star, Camera, Navigation, MessageCircle, Video } from 'lucide-react';
 import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import MediaViewer from '../components/media/MediaViewer';
@@ -28,6 +28,14 @@ export default function ProfilePage() {
   const [photoMenuId, setPhotoMenuId] = useState(null);
   const [posts, setPosts] = useState([]);
   const [loadingPosts, setLoadingPosts] = useState(false);
+  const [locating, setLocating] = useState(false);
+  const [coordsSet, setCoordsSet] = useState(false);
+  const [prompts, setPrompts] = useState([]);
+  const [newPrompt, setNewPrompt] = useState({ question: '', answer: '' });
+  const [showPromptForm, setShowPromptForm] = useState(false);
+  const [videoIntro, setVideoIntro] = useState(null);
+  const [uploadingVideo, setUploadingVideo] = useState(false);
+  const videoInputRef = useRef(null);
 
   useEffect(() => {
     loadMyProfile();
@@ -53,6 +61,9 @@ export default function ProfilePage() {
         zodiacSign: res.data.user.zodiacSign || '',
         loveLanguage: res.data.user.loveLanguage || '',
       });
+      setCoordsSet(res.data.user.latitude != null && res.data.user.longitude != null);
+      setPrompts(res.data.user.profilePrompts || []);
+      setVideoIntro(res.data.user.videoIntro || null);
 
       // Check boost status
       const now = new Date();
@@ -157,6 +168,35 @@ export default function ProfilePage() {
     }
   }
 
+  async function handleSetLocation() {
+    if (!navigator.geolocation) {
+      alert('Geolocation is not supported by your browser');
+      return;
+    }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        try {
+          await api.patch('/profile', {
+            latitude: pos.coords.latitude,
+            longitude: pos.coords.longitude,
+          });
+          setCoordsSet(true);
+          alert('Location set successfully!');
+        } catch (err) {
+          alert('Failed to save location');
+        } finally {
+          setLocating(false);
+        }
+      },
+      () => {
+        alert('Location permission denied. Please enable it in your browser settings.');
+        setLocating(false);
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  }
+
   async function handlePhotoUpload(e) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -209,6 +249,80 @@ export default function ProfilePage() {
       console.error('Failed to load posts', err);
     } finally {
       setLoadingPosts(false);
+    }
+  }
+
+  const PROMPT_QUESTIONS = [
+    'My simple pleasures...',
+    "I'm looking for...",
+    'A boundary I\'m setting in 2026...',
+    'The way to win me over is...',
+    'My love language is...',
+    'Unusual skills I have...',
+    'My go-to karaoke song is...',
+    'I geek out on...',
+  ];
+
+  async function handleAddPrompt() {
+    if (!newPrompt.question || !newPrompt.answer.trim()) return;
+    try {
+      const res = await api.post('/profile/prompts', newPrompt);
+      setPrompts(prev => [...prev, res.data.prompt]);
+      setNewPrompt({ question: '', answer: '' });
+      setShowPromptForm(false);
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to add prompt');
+    }
+  }
+
+  async function handleDeletePrompt(id) {
+    try {
+      await api.delete(`/profile/prompts/${id}`);
+      setPrompts(prev => prev.filter(p => p.id !== id));
+    } catch (err) {
+      alert('Failed to delete prompt');
+    }
+  }
+
+  async function handleVideoIntroUpload(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Check duration (max 15 seconds)
+    const video = document.createElement('video');
+    video.preload = 'metadata';
+    video.onloadedmetadata = () => {
+      if (video.duration > 15) {
+        alert('Video intro must be 15 seconds or less');
+        return;
+      }
+      uploadVideoIntro(file);
+    };
+    video.src = URL.createObjectURL(file);
+  }
+
+  async function uploadVideoIntro(file) {
+    setUploadingVideo(true);
+    try {
+      const formData = new FormData();
+      formData.append('video', file);
+      const res = await api.post('/profile/video-intro', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      setVideoIntro({ videoUrl: res.data.videoUrl });
+    } catch (err) {
+      alert('Failed to upload video intro');
+    } finally {
+      setUploadingVideo(false);
+    }
+  }
+
+  async function handleDeleteVideoIntro() {
+    try {
+      await api.delete('/profile/video-intro');
+      setVideoIntro(null);
+    } catch (err) {
+      alert('Failed to delete video intro');
     }
   }
 
@@ -438,6 +552,52 @@ export default function ProfilePage() {
 
       {activeTab === 'photos' && (
         <div className="space-y-3">
+          {/* Video Intro Section */}
+          <div className="bg-gradient-to-r from-purple-50 to-pink-50 rounded-xl p-4 border border-purple-100">
+            <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2 mb-2">
+              <Video size={16} className="text-purple-500" /> Video Intro (15 sec)
+            </h3>
+            {videoIntro ? (
+              <div className="flex items-center gap-3">
+                <video
+                  src={videoIntro.videoUrl}
+                  className="w-20 h-20 rounded-lg object-cover bg-black"
+                  controls
+                  playsInline
+                />
+                <div className="flex-1">
+                  <p className="text-xs text-gray-500">Your video intro is live!</p>
+                  <button
+                    onClick={handleDeleteVideoIntro}
+                    className="text-xs text-red-500 hover:text-red-600 font-medium mt-1"
+                  >
+                    Remove
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <label className="flex items-center justify-center gap-2 w-full border-2 border-dashed border-purple-200 hover:border-purple-400 rounded-lg py-4 cursor-pointer transition text-purple-400 hover:text-purple-600">
+                {uploadingVideo ? (
+                  <span className="text-sm animate-pulse">Uploading...</span>
+                ) : (
+                  <>
+                    <Video size={18} />
+                    <span className="text-sm font-medium">Record or upload a 15-sec intro</span>
+                  </>
+                )}
+                <input
+                  ref={videoInputRef}
+                  type="file"
+                  accept="video/*"
+                  capture="environment"
+                  onChange={handleVideoIntroUpload}
+                  disabled={uploadingVideo}
+                  className="hidden"
+                />
+              </label>
+            )}
+          </div>
+
           {/* Upload Button */}
           <label className="flex items-center justify-center gap-2 w-full border-2 border-dashed border-gray-200 hover:border-primary rounded-xl py-6 cursor-pointer transition text-gray-400 hover:text-primary">
             {uploading ? (
@@ -506,6 +666,32 @@ export default function ProfilePage() {
           <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400"><Calendar size={16} /><span>Joined {new Date(user.createdAt).toLocaleDateString()}</span></div>
           <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400"><Mail size={16} /><span>{user.gender ? user.gender.toLowerCase() : 'Not specified'}</span></div>
 
+          {/* Location / Proximity */}
+          <div className="border-t border-gray-100 dark:border-gray-700 pt-4">
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">Location</h3>
+            {user.location && (
+              <div className="flex items-center gap-1 text-sm text-gray-600 dark:text-gray-400 mb-2">
+                <MapPin size={14} />
+                <span>{user.location}</span>
+              </div>
+            )}
+            <button
+              onClick={handleSetLocation}
+              disabled={locating}
+              className={`flex items-center gap-2 text-sm font-medium rounded-lg px-3 py-2 transition ${
+                coordsSet
+                  ? 'bg-green-50 text-green-600 hover:bg-green-100'
+                  : 'bg-primary/10 text-primary hover:bg-primary/20'
+              } disabled:opacity-50`}
+            >
+              <Navigation size={16} />
+              {locating ? 'Getting location...' : coordsSet ? 'Location set — Update' : 'Set my location'}
+            </button>
+            <p className="text-[11px] text-gray-400 mt-1">
+              {coordsSet ? 'Distance will be shown to other users.' : 'Enable location so others can see how far you are.'}
+            </p>
+          </div>
+
           {/* Advanced Profile Fields */}
           <div className="border-t border-gray-100 dark:border-gray-700 pt-4 space-y-3">
             <h3 className="text-sm font-semibold text-gray-900 dark:text-white">About You</h3>
@@ -562,6 +748,80 @@ export default function ProfilePage() {
                 </span>
               ))}
               {interests.length === 0 && <p className="text-xs text-gray-400">No interests yet. Add some above!</p>}
+            </div>
+          </div>
+
+          {/* Profile Prompts Section */}
+          <div className="border-t border-gray-100 pt-4">
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-sm font-semibold text-gray-900 flex items-center gap-1">
+                <MessageCircle size={14} /> Prompts ({prompts.length}/3)
+              </label>
+              {prompts.length < 3 && (
+                <button
+                  onClick={() => setShowPromptForm(!showPromptForm)}
+                  className="text-xs text-primary font-medium flex items-center gap-1"
+                >
+                  <Plus size={12} /> Add
+                </button>
+              )}
+            </div>
+
+            {showPromptForm && (
+              <div className="bg-gray-50 rounded-lg p-3 mb-3 space-y-2">
+                <select
+                  value={newPrompt.question}
+                  onChange={(e) => setNewPrompt({ ...newPrompt, question: e.target.value })}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary"
+                >
+                  <option value="">Choose a question...</option>
+                  {PROMPT_QUESTIONS.map((q) => (
+                    <option key={q} value={q}>{q}</option>
+                  ))}
+                </select>
+                <input
+                  type="text"
+                  value={newPrompt.answer}
+                  onChange={(e) => setNewPrompt({ ...newPrompt, answer: e.target.value })}
+                  placeholder="Your answer..."
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary"
+                />
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleAddPrompt}
+                    disabled={!newPrompt.question || !newPrompt.answer.trim()}
+                    className="bg-primary text-white text-xs font-medium px-3 py-1.5 rounded-lg disabled:opacity-50"
+                  >
+                    Save
+                  </button>
+                  <button
+                    onClick={() => { setShowPromptForm(false); setNewPrompt({ question: '', answer: '' }); }}
+                    className="text-gray-500 text-xs px-3 py-1.5"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              {prompts.map((p) => (
+                <div key={p.id} className="bg-gray-50 rounded-lg p-3 flex items-start justify-between">
+                  <div>
+                    <p className="text-xs text-gray-500 font-medium">{p.question}</p>
+                    <p className="text-sm text-gray-800 mt-0.5">{p.answer}</p>
+                  </div>
+                  <button
+                    onClick={() => handleDeletePrompt(p.id)}
+                    className="text-gray-400 hover:text-red-500 transition p-1"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              ))}
+              {prompts.length === 0 && !showPromptForm && (
+                <p className="text-xs text-gray-400">No prompts yet. Show your personality!</p>
+              )}
             </div>
           </div>
         </div>
