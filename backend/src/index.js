@@ -25,6 +25,7 @@ const pushRoutes = require('./routes/push');
 const { registerChatHandlers } = require('./sockets/chat');
 
 const app = express();
+app.set('trust proxy', 1);
 const server = http.createServer(app);
 
 // Security: CORS — use specific origin in production, not wildcard
