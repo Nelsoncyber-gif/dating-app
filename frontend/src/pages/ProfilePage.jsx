@@ -453,9 +453,6 @@ export default function ProfilePage() {
               <MapPin size={14} /><span className="text-sm">{user.location}</span>
             </div>
           )}
-          {!user.isEmailVerified && (
-            <p className="text-xs text-amber-600 mt-2">Email not verified</p>
-          )}
         </div>
 
         {/* Stripe Identity Verification */}

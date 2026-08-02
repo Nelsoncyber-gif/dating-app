@@ -1,18 +1,7 @@
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const nodemailer = require('nodemailer');
 const { z } = require('zod');
 const prisma = require('../config/db');
-
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST || 'smtp.gmail.com',
-  port: parseInt(process.env.SMTP_PORT || '587'),
-  secure: false,
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-  },
-});
 
 const registerSchema = z.object({
   email: z.string().email(),
@@ -47,36 +36,14 @@ async function register(req, res) {
   const passwordHash = await bcrypt.hash(password, 10);
 
   const user = await prisma.user.create({
-    data: { email, passwordHash, name, dob: new Date(dob), gender },
+    data: { email, passwordHash, name, dob: new Date(dob), gender, isEmailVerified: true },
   });
-
-  const code = Math.floor(100000 + Math.random() * 900000).toString();
-  const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
-
-  await prisma.user.update({
-    where: { id: user.id },
-    data: { verificationCode: code, verificationCodeExpiresAt: expiresAt },
-  });
-
-  let emailSent = true;
-  try {
-    await transporter.sendMail({
-      from: `"Waplike" <${process.env.SMTP_USER}>`,
-      to: user.email,
-      subject: 'Verify your Waplike account',
-      html: `<h2>Welcome to Waplike!</h2><p>Your verification code is:</p><h1 style="font-size: 32px; letter-spacing: 4px; background: #f3f4f6; padding: 10px; border-radius: 8px; display: inline-block;">${code}</h1><p>This code expires in 15 minutes.</p>`,
-    });
-  } catch (mailError) {
-    console.error('Failed to send verification email', mailError);
-    emailSent = false;
-  }
 
   const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET, { expiresIn: '7d' });
 
   return res.status(201).json({
     token,
-    user: { id: user.id, email: user.email, name: user.name, isEmailVerified: false },
-    emailSent,
+    user: { id: user.id, email: user.email, name: user.name, isEmailVerified: true },
   });
 }
 
@@ -143,32 +110,4 @@ async function me(req, res) {
   return res.json({ user });
 }
 
-async function verifyEmail(req, res) {
-  const userId = req.userId;
-  const { code } = req.body;
-
-  const user = await prisma.user.findUnique({ where: { id: userId } });
-  if (!user) return res.status(404).json({ error: 'User not found' });
-  if (user.isEmailVerified) return res.json({ verified: true });
-
-  if (!user.verificationCode || !user.verificationCodeExpiresAt) {
-    return res.status(400).json({ error: 'No verification code was generated' });
-  }
-
-  if (user.verificationCode !== String(code).trim() || user.verificationCodeExpiresAt < new Date()) {
-    return res.status(400).json({ error: 'Invalid or expired code' });
-  }
-
-  await prisma.user.update({
-    where: { id: userId },
-    data: {
-      isEmailVerified: true,
-      verificationCode: null,
-      verificationCodeExpiresAt: null,
-    },
-  });
-
-  return res.json({ verified: true, user: { ...user, isEmailVerified: true } });
-}
-
-module.exports = { register, login, me, verifyEmail };
+module.exports = { register, login, me };

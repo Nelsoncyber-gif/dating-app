@@ -1,16 +1,14 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Heart, ShieldCheck } from 'lucide-react';
+import { Heart } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 export default function RegisterPage() {
-  const { register, verifyEmail } = useAuth();
+  const { register } = useAuth();
   const navigate = useNavigate();
   const [form, setForm] = useState({
     name: '', email: '', password: '', dob: '', gender: 'MALE',
   });
-  const [otp, setOtp] = useState('');
-  const [step, setStep] = useState('register');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -24,64 +22,12 @@ export default function RegisterPage() {
     setLoading(true);
     try {
       await register(form);
-      setStep('verify');
+      navigate('/discover');
     } catch (err) {
       setError(err.response?.data?.error || 'Something went wrong. Please try again.');
     } finally {
       setLoading(false);
     }
-  }
-
-  async function handleVerify(e) {
-    e.preventDefault();
-    setError('');
-    setLoading(true);
-    try {
-      await verifyEmail(otp);
-      navigate('/discover');
-    } catch (err) {
-      setError(err.response?.data?.error || 'Invalid code');
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  if (step === 'verify') {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/10 to-primary/5 px-4 py-8">
-        <div className="w-full max-w-sm bg-white rounded-2xl shadow-xl p-8">
-          <div className="flex flex-col items-center mb-6">
-            <div className="bg-primary rounded-full p-3 mb-3">
-              <ShieldCheck className="text-white" size={28} />
-            </div>
-            <h1 className="text-2xl font-bold text-gray-900">Check your email</h1>
-            <p className="text-gray-500 text-sm mt-1 text-center">
-              We sent a 6-digit code to <b>{form.email}</b>
-            </p>
-          </div>
-
-          <form onSubmit={handleVerify} className="flex flex-col gap-4">
-            <input
-              type="text"
-              placeholder="Enter 6-digit code"
-              value={otp}
-              onChange={(e) => setOtp(e.target.value)}
-              required
-              maxLength={6}
-              className="border border-gray-200 rounded-lg px-4 py-3 text-sm text-center tracking-widest focus:outline-none focus:ring-2 focus:ring-primary/40"
-            />
-            {error && <p className="text-red-500 text-sm text-center">{error}</p>}
-            <button
-              type="submit"
-              disabled={loading || otp.length !== 6}
-              className="bg-primary hover:bg-primary-dark text-white font-medium rounded-lg py-3 transition disabled:opacity-60"
-            >
-              {loading ? 'Verifying…' : 'Verify Account'}
-            </button>
-          </form>
-        </div>
-      </div>
-    );
   }
 
   return (

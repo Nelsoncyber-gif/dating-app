@@ -49,14 +49,6 @@ export function AuthProvider({ children }) {
     return res.data.user;
   }
 
-  async function verifyEmail(code) {
-    const res = await api.post('/auth/verify-email', { code });
-    const updatedUser = { ...(user || {}), ...res.data.user, isEmailVerified: true };
-    setUser(updatedUser);
-    localStorage.setItem('user', JSON.stringify(updatedUser));
-    return res.data;
-  }
-
   function logout() {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
@@ -75,7 +67,7 @@ export function AuthProvider({ children }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, setUser, loading, login, register, logout, verifyEmail, refreshUser }}>
+    <AuthContext.Provider value={{ user, setUser, loading, login, register, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );
