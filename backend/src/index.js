@@ -25,6 +25,10 @@ const pushRoutes = require('./routes/push');
 const { registerChatHandlers } = require('./sockets/chat');
 
 const app = express();
+
+// Trust Railway's reverse proxy so express-rate-limit and req.ip work correctly
+app.set('trust proxy', 1);
+
 const server = http.createServer(app);
 
 // Security: CORS — use specific origin in production, not wildcard

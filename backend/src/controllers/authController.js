@@ -1,18 +1,10 @@
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const nodemailer = require('nodemailer');
+const { Resend } = require('resend');
 const { z } = require('zod');
 const prisma = require('../config/db');
 
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST,
-  port: process.env.SMTP_PORT,
-  secure: false,
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-  },
-});
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 const registerSchema = z.object({
   email: z.string().email(),
@@ -60,11 +52,11 @@ async function register(req, res) {
 
   let emailSent = true;
   try {
-    await transporter.sendMail({
-      from: process.env.SMTP_USER,
+    await resend.emails.send({
+      from: 'Waplike <onboarding@resend.dev>',
       to: user.email,
       subject: 'Verify your Waplike account',
-      html: `<h3>Your verification code is: <b>${code}</b></h3><p>It expires in 15 minutes.</p>`,
+      html: `<h2>Welcome to Waplike!</h2><p>Your verification code is:</p><h1 style="font-size: 32px; letter-spacing: 4px; background: #f3f4f6; padding: 10px; border-radius: 8px; display: inline-block;">${code}</h1><p>This code expires in 15 minutes.</p>`,
     });
   } catch (mailError) {
     console.error('Failed to send verification email', mailError);
