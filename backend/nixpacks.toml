@@ -1,0 +1,11 @@
+[[setup]]
+nixpkgs = ["nodejs"]
+
+[[setup]]
+commands = ["rm -f package-lock.json"]
+
+[[install]]
+cmd = "npm install"
+
+[start]
+cmd = "npm run start"
