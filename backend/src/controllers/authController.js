@@ -1,10 +1,18 @@
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const { Resend } = require('resend');
+const nodemailer = require('nodemailer');
 const { z } = require('zod');
 const prisma = require('../config/db');
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST || 'smtp.gmail.com',
+  port: parseInt(process.env.SMTP_PORT || '587'),
+  secure: false,
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
+  },
+});
 
 const registerSchema = z.object({
   email: z.string().email(),
@@ -52,8 +60,8 @@ async function register(req, res) {
 
   let emailSent = true;
   try {
-    await resend.emails.send({
-      from: 'Waplike <onboarding@resend.dev>',
+    await transporter.sendMail({
+      from: `"Waplike" <${process.env.SMTP_USER}>`,
       to: user.email,
       subject: 'Verify your Waplike account',
       html: `<h2>Welcome to Waplike!</h2><p>Your verification code is:</p><h1 style="font-size: 32px; letter-spacing: 4px; background: #f3f4f6; padding: 10px; border-radius: 8px; display: inline-block;">${code}</h1><p>This code expires in 15 minutes.</p>`,
