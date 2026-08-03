@@ -13,8 +13,10 @@ function haversineDistance(lat1, lon1, lat2, lon2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-// GET /api/discover - people you haven't swiped on yet, scored by compatibility + boost
+// GET /api/discover - people you haven't matched/blocked/actively-liked yet
 // Supports query params: minAge, maxAge, gender
+// Passed profiles and incoming likes are allowed back into the pool so existing
+// users always see candidates instead of an empty grid.
 async function discover(req, res) {
   const userId = req.userId;
   const { minAge, maxAge, gender } = req.query;
@@ -24,8 +26,7 @@ async function discover(req, res) {
     where: { id: userId },
     include: {
       interests: { select: { interestId: true } },
-      sentSwipes: { select: { swipedId: true } },
-      receivedSwipes: { select: { swiperId: true } },
+      sentSwipes: { where: { direction: 'LIKE' }, select: { swipedId: true } },
       matchesAsA: { select: { userBId: true } },
       matchesAsB: { select: { userAId: true } },
       blockedUsers: { select: { blockedId: true } },
@@ -37,20 +38,18 @@ async function discover(req, res) {
   const myAge = Math.floor(
     (Date.now() - new Date(currentUser.dob).getTime()) / (1000 * 60 * 60 * 24 * 365.25)
   );
+
+  // Only exclude: self, matches, blocks, and users I've actively LIKED
+  // Passed profiles are NOT excluded — they recycle back into the grid
+  const likedIds = currentUser.sentSwipes.map((s) => s.swipedId);
   const excludeIds = [
     userId,
-    ...currentUser.sentSwipes.map((s) => s.swipedId),
-    ...currentUser.receivedSwipes.map((s) => s.swiperId),
+    ...likedIds,
     ...currentUser.matchesAsA.map((m) => m.userBId),
     ...currentUser.matchesAsB.map((m) => m.userAId),
     ...currentUser.blockedUsers.map((b) => b.blockedId),
     ...currentUser.blockedByUsers.map((b) => b.blockerId),
   ];
-
-  // Users I have already liked (to bypass their incognito mode)
-  const likedIds = currentUser.sentSwipes
-    .filter((s) => !excludeIds.includes(s.swipedId) || true)
-    .map((s) => s.swipedId);
 
   // Date range for age filter
   const now = new Date();
@@ -64,10 +63,6 @@ async function discover(req, res) {
       isActive: true,
       dob: { gte: minDob, lte: maxDob },
       ...(gender && { gender: gender }),
-      OR: [
-        { isIncognito: false },
-        { id: { in: likedIds } },
-      ],
     },
     include: {
       photos: { select: { url: true, isProfilePic: true } },
@@ -329,8 +324,7 @@ async function getDailyPick(req, res) {
     where: { id: userId },
     include: {
       interests: { select: { interestId: true } },
-      sentSwipes: { select: { swipedId: true } },
-      receivedSwipes: { select: { swiperId: true } },
+      sentSwipes: { where: { direction: 'LIKE' }, select: { swipedId: true } },
       matchesAsA: { select: { userBId: true } },
       matchesAsB: { select: { userAId: true } },
       blockedUsers: { select: { blockedId: true } },
@@ -356,17 +350,17 @@ async function getDailyPick(req, res) {
   const myAge = Math.floor(
     (Date.now() - new Date(currentUser.dob).getTime()) / (1000 * 60 * 60 * 24 * 365.25)
   );
+
+  // Only exclude: self, matches, blocks, and users I've actively LIKED
+  const likedIds = currentUser.sentSwipes.map((s) => s.swipedId);
   const excludeIds = [
     userId,
-    ...currentUser.sentSwipes.map((s) => s.swipedId),
-    ...currentUser.receivedSwipes.map((s) => s.swiperId),
+    ...likedIds,
     ...currentUser.matchesAsA.map((m) => m.userBId),
     ...currentUser.matchesAsB.map((m) => m.userAId),
     ...currentUser.blockedUsers.map((b) => b.blockedId),
     ...currentUser.blockedByUsers.map((b) => b.blockerId),
   ];
-
-  const likedIds = currentUser.sentSwipes.map((s) => s.swipedId);
 
   const now = new Date();
   const minDob = new Date(now.getFullYear() - 40, 1, 1);
@@ -377,7 +371,6 @@ async function getDailyPick(req, res) {
       id: { notIn: excludeIds },
       isActive: true,
       dob: { gte: minDob, lte: maxDob },
-      OR: [{ isIncognito: false }, { id: { in: likedIds } }],
     },
     include: {
       photos: { select: { url: true, isProfilePic: true } },
