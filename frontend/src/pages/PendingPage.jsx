@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Clock, ArrowLeft } from 'lucide-react';
+import { Clock, ArrowLeft, Heart } from 'lucide-react';
 import api from '../api/client';
 import ProfilePreviewModal from '../components/profile/ProfilePreviewModal';
 
@@ -9,6 +9,7 @@ export default function PendingPage() {
   const [pending, setPending] = useState([]);
   const [loading, setLoading] = useState(true);
   const [previewUserId, setPreviewUserId] = useState(null);
+  const [matchPopup, setMatchPopup] = useState(null);
 
   useEffect(() => {
     api.get('/social/pending')
@@ -18,6 +19,32 @@ export default function PendingPage() {
       })
       .catch(() => setLoading(false));
   }, []);
+
+  // Actually call the swipe API when user likes from the preview modal
+  async function handlePendingLike(swipedId) {
+    try {
+      const res = await api.post('/swipe', { swipedId, direction: 'LIKE' });
+      if (res.data.matched) {
+        const matchedUser = pending.find((u) => u.id === swipedId);
+        setMatchPopup(matchedUser || { name: 'Someone' });
+      }
+      // Remove from pending list (either matched or still waiting)
+      setPending((prev) => prev.filter((u) => u.id !== swipedId));
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to like');
+    }
+  }
+
+  // Actually call the swipe API when user passes from the preview modal
+  async function handlePendingPass(swipedId) {
+    try {
+      await api.post('/swipe', { swipedId, direction: 'PASS' });
+      // Remove from pending list since we passed
+      setPending((prev) => prev.filter((u) => u.id !== swipedId));
+    } catch (err) {
+      console.error('Failed to pass', err);
+    }
+  }
 
   if (loading) return <p className="p-4 text-center text-gray-400">Loading...</p>;
 
@@ -68,9 +95,28 @@ export default function PendingPage() {
         <ProfilePreviewModal
           userId={previewUserId}
           onClose={() => setPreviewUserId(null)}
-          onLike={() => setPreviewUserId(null)}
-          onPass={() => setPreviewUserId(null)}
+          onLike={handlePendingLike}
+          onPass={handlePendingPass}
         />
+      )}
+
+      {/* Match Popup */}
+      {matchPopup && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 px-6">
+          <div className="bg-white rounded-2xl p-6 text-center max-w-xs w-full">
+            <Heart className="mx-auto text-primary mb-3" size={40} fill="currentColor" />
+            <h2 className="text-xl font-bold text-gray-900">It's a Match!</h2>
+            <p className="text-sm text-gray-500 mt-1">
+              You and {matchPopup.name} liked each other.
+            </p>
+            <button
+              onClick={() => setMatchPopup(null)}
+              className="mt-4 bg-primary text-white rounded-lg py-2 px-6 font-medium w-full"
+            >
+              Keep Browsing
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );

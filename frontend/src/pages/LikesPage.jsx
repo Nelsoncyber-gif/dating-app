@@ -10,6 +10,7 @@ export default function LikesPage() {
   const [likes, setLikes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [previewUserId, setPreviewUserId] = useState(null);
+  const [matchPopup, setMatchPopup] = useState(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -24,6 +25,32 @@ export default function LikesPage() {
       console.error('Failed to load likes', err);
     } finally {
       setLoading(false);
+    }
+  }
+
+  // Actually call the swipe API when user likes from the preview modal
+  async function handleLikeFromPreview(swipedId) {
+    try {
+      const res = await api.post('/swipe', { swipedId, direction: 'LIKE' });
+      if (res.data.matched) {
+        const matchedUser = likes.find((l) => l.id === swipedId);
+        setMatchPopup(matchedUser || { name: 'Someone' });
+      }
+      // Remove from likes list since we've responded
+      setLikes((prev) => prev.filter((l) => l.id !== swipedId));
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to like');
+    }
+  }
+
+  // Actually call the swipe API when user passes from the preview modal
+  async function handlePassFromPreview(swipedId) {
+    try {
+      await api.post('/swipe', { swipedId, direction: 'PASS' });
+      // Remove from likes list since we've passed
+      setLikes((prev) => prev.filter((l) => l.id !== swipedId));
+    } catch (err) {
+      console.error('Failed to pass', err);
     }
   }
 
@@ -95,9 +122,28 @@ export default function LikesPage() {
         <ProfilePreviewModal
           userId={previewUserId}
           onClose={() => setPreviewUserId(null)}
-          onLike={() => setPreviewUserId(null)}
-          onPass={() => setPreviewUserId(null)}
+          onLike={handleLikeFromPreview}
+          onPass={handlePassFromPreview}
         />
+      )}
+
+      {/* Match Popup */}
+      {matchPopup && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 px-6">
+          <div className="bg-white rounded-2xl p-6 text-center max-w-xs w-full">
+            <Heart className="mx-auto text-primary mb-3" size={40} fill="currentColor" />
+            <h2 className="text-xl font-bold text-gray-900">It's a Match!</h2>
+            <p className="text-sm text-gray-500 mt-1">
+              You and {matchPopup.name} liked each other.
+            </p>
+            <button
+              onClick={() => setMatchPopup(null)}
+              className="mt-4 bg-primary text-white rounded-lg py-2 px-6 font-medium w-full"
+            >
+              Keep Browsing
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );
