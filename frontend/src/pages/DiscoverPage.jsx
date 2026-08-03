@@ -1,11 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Heart, ShieldAlert, X, Sparkles, Star, Zap, RotateCcw, Filter, Crown, Calendar, Gem } from 'lucide-react';
+import { Heart, ShieldAlert, X, Sparkles, Star, RotateCcw, Filter, Crown, Calendar, Gem, Search, MapPin, User, Info } from 'lucide-react';
 import api from '../api/client';
 import ReportBlockModal from '../components/safety/ReportBlockModal';
 import ProfilePreviewModal from '../components/profile/ProfilePreviewModal';
 import OnboardingModal from '../components/onboarding/OnboardingModal';
-import SwipeCard from '../components/discover/SwipeCard';
 
 export default function DiscoverPage() {
   const navigate = useNavigate();
@@ -19,6 +18,10 @@ export default function DiscoverPage() {
   const [filters, setFilters] = useState({ minAge: '', maxAge: '', gender: '' });
   const [showTutorial, setShowTutorial] = useState(false);
   const [dailyPick, setDailyPick] = useState(null);
+  const [showSearch, setShowSearch] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [searchLoading, setSearchLoading] = useState(false);
 
   useEffect(() => {
     loadCandidates();
@@ -72,42 +75,6 @@ export default function DiscoverPage() {
     }
   }
 
-  async function handleSwipe(direction) {
-    const candidate = candidates[0];
-    if (!candidate) return;
-
-    setLastSwiped({ id: candidate.id, direction });
-    setCandidates((prev) => prev.slice(1));
-
-    try {
-      const res = await api.post('/swipe', { swipedId: candidate.id, direction });
-      if (res.data.matched) {
-        setMatchPopup(candidate);
-      }
-    } catch (err) {
-      console.error('Swipe failed', err);
-      if (err.response?.status === 403) {
-        alert(err.response.data.error);
-      }
-    }
-  }
-
-  async function handleSuperLike() {
-    const candidate = candidates[0];
-    if (!candidate) return;
-
-    setCandidates((prev) => prev.slice(1));
-    try {
-      const res = await api.post('/swipe', { swipedId: candidate.id, direction: 'LIKE', isSuperLike: true });
-      if (res.data.matched) {
-        setMatchPopup(candidate);
-      }
-    } catch (err) {
-      alert(err.response?.data?.error || 'Super like failed');
-      loadCandidates();
-    }
-  }
-
   async function handleRewind() {
     if (!lastSwiped) return;
     try {
@@ -119,18 +86,101 @@ export default function DiscoverPage() {
     }
   }
 
-  function handleReportBlock() {
-    const candidate = candidates[0];
+  async function handleGridLike(candidateId) {
+    try {
+      const res = await api.post('/swipe', { swipedId: candidateId, direction: 'LIKE' });
+      if (res.data.matched) {
+        const matchedUser = candidates.find((c) => c.id === candidateId);
+        setMatchPopup(matchedUser || { name: 'Someone' });
+      }
+      setCandidates((prev) => prev.filter((c) => c.id !== candidateId));
+    } catch (err) {
+      if (err.response?.status === 403) {
+        alert(err.response.data.error);
+      } else {
+        alert(err.response?.data?.error || 'Failed to like');
+      }
+    }
+  }
+
+  async function handleGridPass(candidateId) {
+    try {
+      await api.post('/swipe', { swipedId: candidateId, direction: 'PASS' });
+      setCandidates((prev) => prev.filter((c) => c.id !== candidateId));
+    } catch (err) {
+      console.error('Failed to pass', err);
+    }
+  }
+
+  async function handleGridSuperLike(candidateId) {
+    try {
+      const res = await api.post('/swipe', { swipedId: candidateId, direction: 'LIKE', isSuperLike: true });
+      if (res.data.matched) {
+        const matchedUser = candidates.find((c) => c.id === candidateId);
+        setMatchPopup(matchedUser || { name: 'Someone' });
+      }
+      setCandidates((prev) => prev.filter((c) => c.id !== candidateId));
+    } catch (err) {
+      alert(err.response?.data?.error || 'Super like failed');
+    }
+  }
+
+  function handleReportBlock(candidateId) {
+    const candidate = candidates.find((c) => c.id === candidateId);
     if (candidate) setSafetyTarget(candidate);
   }
 
+  async function handleSearch(query) {
+    setSearchQuery(query);
+    if (query.trim().length < 1) {
+      setSearchResults([]);
+      return;
+    }
+    setSearchLoading(true);
+    try {
+      const res = await api.get(`/discover/search?q=${encodeURIComponent(query)}`);
+      setSearchResults(res.data.results);
+    } catch (err) {
+      console.error('Search failed', err);
+    } finally {
+      setSearchLoading(false);
+    }
+  }
+
+  async function handleSearchLike(swipedId) {
+    try {
+      const res = await api.post('/swipe', { swipedId, direction: 'LIKE' });
+      if (res.data.matched) {
+        const matchedUser = searchResults.find((u) => u.id === swipedId);
+        setMatchPopup(matchedUser || { name: 'Someone' });
+      }
+      setSearchResults((prev) => prev.filter((u) => u.id !== swipedId));
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to like user');
+    }
+  }
+
+  async function handleSearchPass(swipedId) {
+    try {
+      await api.post('/swipe', { swipedId, direction: 'PASS' });
+      setSearchResults((prev) => prev.filter((u) => u.id !== swipedId));
+    } catch (err) {
+      console.error('Failed to pass', err);
+    }
+  }
+
   return (
-    <div className="flex flex-col h-full max-w-md mx-auto">
+    <div className="flex flex-col h-full max-w-lg mx-auto">
       {/* Header */}
       <div className="flex justify-between items-center px-4 py-3 shrink-0">
-        <button onClick={() => setShowFilters(true)} className="p-2 bg-gray-100 hover:bg-gray-200 rounded-full transition" title="Filters">
-          <Filter size={18} className="text-gray-600" />
-        </button>
+        <div className="flex gap-1.5">
+          <button onClick={() => setShowFilters(true)} className="p-2 bg-gray-100 hover:bg-gray-200 rounded-full transition" title="Filters">
+            <Filter size={18} className="text-gray-600" />
+          </button>
+          <button onClick={() => setShowSearch(true)} className="p-2 bg-blue-100 hover:bg-blue-200 rounded-full transition" title="Search Users">
+            <Search size={18} className="text-blue-600" />
+          </button>
+        </div>
         <h1 className="text-xl font-bold text-gray-900">Discover</h1>
         <div className="flex gap-1.5">
           <button onClick={() => navigate('/likes')} className="p-2 bg-primary/10 hover:bg-primary/20 rounded-full transition" title="Who Liked You">
@@ -241,16 +291,18 @@ export default function DiscoverPage() {
         </div>
       )}
 
-      {/* Card Stack Area */}
-      <div className="flex-1 relative px-3 pb-2 min-h-0">
+      {/* Profile Grid */}
+      <div className="flex-1 overflow-y-auto px-3 pb-4">
         {loading && (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="w-full max-w-sm aspect-[3/4] rounded-2xl bg-gray-100 animate-pulse" />
+          <div className="grid grid-cols-2 gap-3">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="rounded-2xl bg-gray-100 animate-pulse aspect-[3/4]" />
+            ))}
           </div>
         )}
 
         {!loading && candidates.length === 0 && (
-          <div className="absolute inset-0 flex items-center justify-center">
+          <div className="flex items-center justify-center min-h-[50vh]">
             <div className="text-center text-gray-400 px-6">
               <Sparkles className="mx-auto mb-3" size={40} />
               <p className="text-lg font-medium mb-1">No new profiles right now</p>
@@ -260,74 +312,97 @@ export default function DiscoverPage() {
         )}
 
         {!loading && candidates.length > 0 && (
-          <div className="relative w-full h-full">
-            {/* Background cards (stacked effect) */}
-            {candidates.slice(1, 3).reverse().map((candidate, i) => (
-              <SwipeCard
-                key={candidate.id}
-                candidate={candidate}
-                isTop={false}
-                onSwipe={() => {}}
-                onSuperLike={() => {}}
-                onInfo={() => {}}
-              />
-            ))}
+          <div className="grid grid-cols-2 gap-3">
+            {candidates.map((candidate) => {
+              const photo = candidate.photos?.find((p) => p.isProfilePic) || candidate.photos?.[0];
+              const age = Math.floor((Date.now() - new Date(candidate.dob).getTime()) / (1000 * 60 * 60 * 24 * 365.25));
+              return (
+                <div key={candidate.id} className="bg-white rounded-2xl shadow-sm overflow-hidden group">
+                  {/* Photo */}
+                  <div
+                    className="relative aspect-[3/4] bg-gray-100 cursor-pointer"
+                    onClick={() => setPreviewUserId(candidate.id)}
+                  >
+                    {photo?.url ? (
+                      <img src={photo.url} alt={candidate.name} className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-gray-300 text-4xl font-bold">
+                        {candidate.name?.[0] || '?'}
+                      </div>
+                    )}
+                    {/* Compatibility badge */}
+                    {candidate.compatibility > 0 && (
+                      <div className="absolute top-2 left-2 bg-black/50 backdrop-blur-sm rounded-full px-2 py-0.5 flex items-center gap-1">
+                        <Sparkles size={10} className="text-amber-300" />
+                        <span className="text-white text-[10px] font-bold">{candidate.compatibility}%</span>
+                      </div>
+                    )}
+                    {/* Info button */}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setPreviewUserId(candidate.id); }}
+                      className="absolute top-2 right-2 bg-black/30 hover:bg-black/50 rounded-full p-1 transition opacity-0 group-hover:opacity-100"
+                    >
+                      <Info size={14} className="text-white" />
+                    </button>
+                    {/* Gradient at bottom */}
+                    <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-black/60 to-transparent pointer-events-none" />
+                    {/* Name + age overlay */}
+                    <div className="absolute bottom-1.5 left-2 right-2 pointer-events-none">
+                      <p className="text-white font-bold text-sm truncate">{candidate.name}, {age}</p>
+                      {candidate.distance != null && (
+                        <p className="text-white/70 text-[10px] flex items-center gap-0.5">
+                          <MapPin size={8} /> {candidate.distance} km
+                        </p>
+                      )}
+                    </div>
+                  </div>
 
-            {/* Top swipeable card */}
-            <SwipeCard
-              key={candidates[0].id}
-              candidate={candidates[0]}
-              isTop={true}
-              onSwipe={handleSwipe}
-              onSuperLike={handleSuperLike}
-              onInfo={() => setPreviewUserId(candidates[0].id)}
-            />
+                  {/* Action Buttons */}
+                  <div className="flex items-center justify-center gap-1.5 py-2 px-2">
+                    <button
+                      onClick={() => handleReportBlock(candidate.id)}
+                      className="p-1.5 hover:bg-red-50 rounded-full transition"
+                      title="Report / Block"
+                    >
+                      <ShieldAlert size={14} className="text-gray-400 hover:text-red-400" />
+                    </button>
+                    <button
+                      onClick={() => handleGridPass(candidate.id)}
+                      className="p-2 bg-white hover:bg-red-50 border border-gray-200 hover:border-red-300 rounded-full transition"
+                      title="Pass"
+                    >
+                      <X size={18} className="text-red-400" />
+                    </button>
+                    <button
+                      onClick={() => handleGridSuperLike(candidate.id)}
+                      className="p-1.5 bg-white hover:bg-blue-50 border border-gray-200 hover:border-blue-300 rounded-full transition"
+                      title="Super Like"
+                    >
+                      <Star size={14} className="text-blue-500" fill="currentColor" />
+                    </button>
+                    <button
+                      onClick={() => handleGridLike(candidate.id)}
+                      className="p-2 bg-white hover:bg-green-50 border border-gray-200 hover:border-green-300 rounded-full transition"
+                      title="Like"
+                    >
+                      <Heart size={18} className="text-green-500" fill="currentColor" />
+                    </button>
+                    {lastSwiped?.id === candidate.id && (
+                      <button
+                        onClick={() => handleRewind()}
+                        className="p-1.5 hover:bg-yellow-50 rounded-full transition"
+                        title="Rewind"
+                      >
+                        <RotateCcw size={14} className="text-yellow-600" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
-
-      {/* Action Buttons */}
-      {candidates.length > 0 && (
-        <div className="flex items-center justify-center gap-5 px-4 py-4 shrink-0">
-          <button
-            onClick={handleReportBlock}
-            className="p-3 bg-gray-100 hover:bg-red-100 rounded-full transition group"
-            title="Report / Block"
-          >
-            <ShieldAlert size={20} className="text-gray-500 group-hover:text-red-500" />
-          </button>
-          <button
-            onClick={() => handleSwipe('PASS')}
-            className="p-4 bg-white hover:bg-red-50 border-2 border-red-200 hover:border-red-400 rounded-full shadow-sm transition"
-            title="Pass"
-          >
-            <X size={28} className="text-red-500" />
-          </button>
-          <button
-            onClick={handleSuperLike}
-            className="p-3 bg-white hover:bg-blue-50 border-2 border-blue-200 hover:border-blue-400 rounded-full shadow-sm transition"
-            title="Super Like"
-          >
-            <Star size={24} className="text-blue-500" fill="currentColor" />
-          </button>
-          <button
-            onClick={() => handleSwipe('LIKE')}
-            className="p-4 bg-white hover:bg-green-50 border-2 border-green-200 hover:border-green-400 rounded-full shadow-sm transition"
-            title="Like"
-          >
-            <Heart size={28} className="text-green-500" fill="currentColor" />
-          </button>
-          {lastSwiped && (
-            <button
-              onClick={handleRewind}
-              className="p-3 bg-white hover:bg-yellow-50 border-2 border-yellow-200 hover:border-yellow-400 rounded-full shadow-sm transition"
-              title="Rewind"
-            >
-              <RotateCcw size={20} className="text-yellow-600" />
-            </button>
-          )}
-        </div>
-      )}
 
       {/* Match Popup */}
       {matchPopup && (
@@ -358,14 +433,113 @@ export default function DiscoverPage() {
         />
       )}
 
-      {/* Profile Preview Modal */}
+      {/* Profile Preview Modal — view-only, use grid buttons to like/pass */}
       {previewUserId && (
         <ProfilePreviewModal
           userId={previewUserId}
           onClose={() => setPreviewUserId(null)}
-          onLike={(id) => { handleSwipe('LIKE'); setPreviewUserId(null); }}
-          onPass={(id) => { handleSwipe('PASS'); setPreviewUserId(null); }}
         />
+      )}
+
+      {/* Search Modal */}
+      {showSearch && (
+        <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50">
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full max-w-sm max-h-[85vh] flex flex-col">
+            {/* Search Header */}
+            <div className="flex items-center gap-2 p-4 border-b border-gray-100 shrink-0">
+              <div className="flex-1 relative">
+                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Search by name..."
+                  value={searchQuery}
+                  onChange={(e) => handleSearch(e.target.value)}
+                  autoFocus
+                  className="w-full pl-9 pr-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+                />
+              </div>
+              <button onClick={() => { setShowSearch(false); setSearchQuery(''); setSearchResults([]); }} className="p-2 text-gray-400 hover:text-gray-600">
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Search Results */}
+            <div className="flex-1 overflow-y-auto p-3">
+              {searchLoading && (
+                <div className="flex items-center justify-center py-8">
+                  <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                </div>
+              )}
+
+              {!searchLoading && searchQuery.trim() && searchResults.length === 0 && (
+                <div className="text-center py-8 text-gray-400">
+                  <User className="mx-auto mb-2" size={28} />
+                  <p className="text-sm">No users found</p>
+                  <p className="text-xs mt-1">Try a different name</p>
+                </div>
+              )}
+
+              {!searchLoading && searchResults.length > 0 && (
+                <div className="space-y-2">
+                  {searchResults.map((result) => {
+                    const photo = result.photos?.find((p) => p.isProfilePic) || result.photos?.[0];
+                    return (
+                      <div key={result.id} className="bg-gray-50 rounded-xl p-3 flex items-center gap-3">
+                        <div
+                          className="w-14 h-14 rounded-full bg-gray-200 overflow-hidden shrink-0 cursor-pointer"
+                          onClick={() => setPreviewUserId(result.id)}
+                        >
+                          {photo ? (
+                            <img src={photo.url} alt={result.name} className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-gray-400 font-bold text-lg">
+                              {result.name?.[0] || '?'}
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0 cursor-pointer" onClick={() => setPreviewUserId(result.id)}>
+                          <p className="font-semibold text-sm text-gray-900 truncate">{result.name}</p>
+                          {result.location && (
+                            <p className="text-xs text-gray-400 flex items-center gap-1 truncate">
+                              <MapPin size={10} /> {result.location}
+                            </p>
+                          )}
+                          {result.bio && (
+                            <p className="text-xs text-gray-500 truncate mt-0.5">{result.bio}</p>
+                          )}
+                        </div>
+                        <div className="flex gap-1.5 shrink-0">
+                          <button
+                            onClick={() => handleSearchPass(result.id)}
+                            className="p-2 bg-white hover:bg-red-50 border border-gray-200 hover:border-red-300 rounded-full transition"
+                            title="Pass"
+                          >
+                            <X size={16} className="text-red-400" />
+                          </button>
+                          <button
+                            onClick={() => handleSearchLike(result.id)}
+                            className="p-2 bg-white hover:bg-green-50 border border-gray-200 hover:border-green-300 rounded-full transition"
+                            title="Like"
+                          >
+                            <Heart size={16} className="text-green-500" fill="currentColor" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {!searchLoading && !searchQuery.trim() && (
+                <div className="text-center py-8 text-gray-400">
+                  <Search className="mx-auto mb-2" size={28} />
+                  <p className="text-sm">Type a name to search</p>
+                  <p className="text-xs mt-1">Find and like users directly</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Onboarding Tutorial */}

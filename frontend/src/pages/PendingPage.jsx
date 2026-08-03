@@ -2,11 +2,13 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Clock, ArrowLeft } from 'lucide-react';
 import api from '../api/client';
+import ProfilePreviewModal from '../components/profile/ProfilePreviewModal';
 
 export default function PendingPage() {
   const navigate = useNavigate();
   const [pending, setPending] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [previewUserId, setPreviewUserId] = useState(null);
 
   useEffect(() => {
     api.get('/social/pending')
@@ -36,7 +38,11 @@ export default function PendingPage() {
           {pending.map((user) => {
             const photo = user.photos?.find((p) => p.isProfilePic) || user.photos?.[0];
             return (
-              <div key={user.id} className="bg-white rounded-xl shadow-sm p-3 flex items-center gap-3">
+              <div
+                key={user.id}
+                onClick={() => setPreviewUserId(user.id)}
+                className="bg-white rounded-xl shadow-sm p-3 flex items-center gap-3 cursor-pointer hover:bg-gray-50 transition"
+              >
                 <div className="w-14 h-14 rounded-full bg-gray-100 overflow-hidden shrink-0">
                   {photo ? (
                     <img src={photo.url} alt={user.name} className="w-full h-full object-cover" />
@@ -56,6 +62,15 @@ export default function PendingPage() {
             );
           })}
         </div>
+      )}
+
+      {previewUserId && (
+        <ProfilePreviewModal
+          userId={previewUserId}
+          onClose={() => setPreviewUserId(null)}
+          onLike={() => setPreviewUserId(null)}
+          onPass={() => setPreviewUserId(null)}
+        />
       )}
     </div>
   );

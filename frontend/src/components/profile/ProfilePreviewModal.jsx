@@ -125,21 +125,27 @@ export default function ProfilePreviewModal({ userId, onClose, onLike, onPass })
             </div>
           )}
 
-          {/* Action Buttons */}
-          <div className="flex gap-3 mt-6">
-            <button
-              onClick={() => { onPass(userId); onClose(); }}
-              className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold rounded-xl py-3 flex items-center justify-center gap-2 transition"
-            >
-              <XIcon size={20} /> Pass
-            </button>
-            <button
-              onClick={() => { onLike(userId); onClose(); }}
-              className="flex-1 bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl py-3 flex items-center justify-center gap-2 transition"
-            >
-              <Heart size={20} fill="currentColor" /> Like
-            </button>
-          </div>
+          {/* Action Buttons — only show when onLike/onPass are provided */}
+          {(onLike || onPass) && (
+            <div className="flex gap-3 mt-6">
+              {onPass && (
+                <button
+                  onClick={() => { onPass(userId); onClose(); }}
+                  className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold rounded-xl py-3 flex items-center justify-center gap-2 transition"
+                >
+                  <XIcon size={20} /> Pass
+                </button>
+              )}
+              {onLike && (
+                <button
+                  onClick={() => { onLike(userId); onClose(); }}
+                  className="flex-1 bg-primary hover:bg-primary-dark text-white font-semibold rounded-xl py-3 flex items-center justify-center gap-2 transition"
+                >
+                  <Heart size={20} fill="currentColor" /> Like
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>

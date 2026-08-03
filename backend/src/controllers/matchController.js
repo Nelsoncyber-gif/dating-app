@@ -75,7 +75,7 @@ async function discover(req, res) {
       profilePrompts: { select: { question: true, answer: true }, orderBy: { sortOrder: 'asc' }, take: 1 },
       videoIntro: { select: { videoUrl: true } },
     },
-    take: 30,
+    take: 50,
   });
 
   // 3. Calculate Compatibility Score, Distance & Apply Boost
@@ -459,4 +459,50 @@ async function getDailyPick(req, res) {
   return res.json({ dailyPick: pick });
 }
 
-module.exports = { discover, swipe, undoSwipe, getMatches, getMilestones, createMilestone, getDailyPick };
+// GET /api/discover/search?q=query - Search users by name
+async function searchUsers(req, res) {
+  const userId = req.userId;
+  const { q } = req.query;
+
+  if (!q || q.trim().length < 1) {
+    return res.json({ results: [] });
+  }
+
+  const currentUser = await prisma.user.findUnique({
+    where: { id: userId },
+    include: {
+      blockedUsers: { select: { blockedId: true } },
+      blockedByUsers: { select: { blockerId: true } },
+    },
+  });
+
+  const excludeIds = [
+    userId,
+    ...currentUser.blockedUsers.map((b) => b.blockedId),
+    ...currentUser.blockedByUsers.map((b) => b.blockerId),
+  ];
+
+  const results = await prisma.user.findMany({
+    where: {
+      id: { notIn: excludeIds },
+      isActive: true,
+      name: { contains: q.trim(), mode: 'insensitive' },
+    },
+    include: {
+      photos: { select: { url: true, isProfilePic: true } },
+    },
+    take: 20,
+  });
+
+  const formatted = results.map((u) => ({
+    id: u.id,
+    name: u.name,
+    bio: u.bio,
+    location: u.location,
+    photos: u.photos,
+  }));
+
+  return res.json({ results: formatted });
+}
+
+module.exports = { discover, swipe, undoSwipe, getMatches, getMilestones, createMilestone, getDailyPick, searchUsers };

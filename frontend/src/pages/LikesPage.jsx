@@ -3,11 +3,13 @@ import { useNavigate } from 'react-router-dom';
 import { Lock, Heart, ArrowLeft } from 'lucide-react';
 import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
+import ProfilePreviewModal from '../components/profile/ProfilePreviewModal';
 
 export default function LikesPage() {
   const { user } = useAuth();
   const [likes, setLikes] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [previewUserId, setPreviewUserId] = useState(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -63,7 +65,11 @@ export default function LikesPage() {
 
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
         {likes.map((like) => (
-          <div key={like.id} className="bg-white rounded-xl shadow-sm overflow-hidden relative">
+          <div
+            key={like.id}
+            onClick={() => user?.isPremium && setPreviewUserId(like.id)}
+            className={`bg-white rounded-xl shadow-sm overflow-hidden relative ${user?.isPremium ? 'cursor-pointer hover:shadow-md transition' : ''}`}
+          >
             <div className="aspect-square bg-gray-100 relative">
               <img
                 src={like.photos?.[0]?.url}
@@ -84,6 +90,15 @@ export default function LikesPage() {
           </div>
         ))}
       </div>
+
+      {previewUserId && (
+        <ProfilePreviewModal
+          userId={previewUserId}
+          onClose={() => setPreviewUserId(null)}
+          onLike={() => setPreviewUserId(null)}
+          onPass={() => setPreviewUserId(null)}
+        />
+      )}
     </div>
   );
 }
